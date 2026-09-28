@@ -27,7 +27,7 @@ import {
   askAi,
   createCasebook,
   createIntegrator,
-  debugTransaction,
+  diagnoseTransaction,
   getProviderStatus,
   listCasebooks,
   listIntegrators,
@@ -134,11 +134,20 @@ function App() {
     setError(null);
     setAiAnswer(null);
     try {
-      const next = await debugTransaction({
+      const diagnosis = await diagnoseTransaction({
         signature: signature.trim(),
         cluster,
         data_mode: 'auto',
       });
+      if (!diagnosis.transaction) {
+        setResponse(null);
+        setError(diagnosis.diagnosis.copy_markdown || diagnosis.diagnosis.explanation);
+        return;
+      }
+      const next = {
+        info: diagnosis.transaction,
+        formatted_text: diagnosis.formatted_text,
+      };
       setResponse(next);
       setActiveTab('summary');
     } catch (err) {

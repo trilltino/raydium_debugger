@@ -17,12 +17,14 @@ pub mod transaction_fetch;
 #[cfg(feature = "ai")]
 pub use ai::{ask_ai, build_ai_prompt, AiDebugContext, AiResponse};
 pub use debug::{
-    debug_transaction, format_debug_info, AccountChange, AccountEvidence, CpiFrame, FreshnessInfo,
-    InstructionAccountMeta, InstructionDebugInfo, ProviderDebugInfo, RateLimitDebugInfo,
-    RaydiumAccountRole, RaydiumContext, RaydiumInstructionRole, RaydiumPhase, RaydiumProduct,
-    RaydiumProductDebug, RaydiumSwapSummary, RentEvidence, RootCause, TokenInstructionDetails,
+    debug_transaction, format_debug_info, AccountChange, AccountEvidence, ComputeAttribution,
+    ComputeBudgetInfo, CpiFrame, DecodedInstruction, ExecutionNode, FreshnessInfo,
+    InstructionAccountMeta, InstructionDebugInfo, InstructionSemanticDecode,
+    ProgramInvocationSummary, ProviderDebugInfo, RateLimitDebugInfo, RaydiumAccountRole,
+    RaydiumContext, RaydiumInstructionRole, RaydiumPhase, RaydiumProduct, RaydiumProductDebug,
+    RaydiumSwapSummary, RentEvidence, ResourceUsage, RootCause, TokenInstructionDetails,
     TokenInstructionParameter, TokenMovement, TransactionDebugInfo, TransactionMetadata,
-    TransactionStatusSummary,
+    TransactionProgramContext, TransactionStatusSummary,
 };
 pub use failures::{
     parse_custom_error_code, parse_failing_instruction_index, parse_program_error, program_label,
@@ -30,8 +32,9 @@ pub use failures::{
 };
 pub use rpc::{make_rpc, redact_url, RpcCluster, RpcConfig, RpcDebugInfo, RPC_TIMEOUT};
 pub use service::{
-    run_ai_request, run_debug_request, run_debug_request_blocking, AiAskRequest, DebugDataMode,
-    DebugRequest, DebugResponse,
+    run_ai_request, run_debug_request, run_debug_request_blocking, run_diagnostic_request_blocking,
+    AiAskRequest, DebugDataMode, DebugRequest, DebugResponse, Diagnosis, DiagnosticResponse,
+    ObservationStatus,
 };
 pub use transaction_fetch::{
     fetch_transaction_v1_aware, transaction_fetch_config, v1_read_required,

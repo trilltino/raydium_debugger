@@ -18,12 +18,13 @@ mod types;
 pub use build::debug_transaction;
 pub use format::format_debug_info;
 pub use types::{
-    AccountChange, AccountEvidence, CpiFrame, ExperienceSummary, FreshnessInfo,
-    InstructionAccountMeta, InstructionDebugInfo, ProviderDebugInfo, RateLimitDebugInfo,
-    RaydiumAccountRole, RaydiumContext, RaydiumInstructionRole, RaydiumPhase, RaydiumProduct,
-    RaydiumProductDebug, RaydiumSwapSummary, RentEvidence, RootCause, TokenInstructionDetails,
-    TokenInstructionParameter, TokenMovement, TransactionDebugInfo, TransactionMetadata,
-    TransactionStatusSummary,
+    AccountChange, AccountEvidence, ComputeAttribution, ComputeBudgetInfo, CpiFrame,
+    DecodedInstruction, ExecutionNode, ExperienceSummary, FreshnessInfo, InstructionAccountMeta,
+    InstructionDebugInfo, InstructionSemanticDecode, ProgramInvocationSummary, ProviderDebugInfo,
+    RateLimitDebugInfo, RaydiumAccountRole, RaydiumContext, RaydiumInstructionRole, RaydiumPhase,
+    RaydiumProduct, RaydiumProductDebug, RaydiumSwapSummary, RentEvidence, ResourceUsage,
+    RootCause, TokenInstructionDetails, TokenInstructionParameter, TokenMovement,
+    TransactionDebugInfo, TransactionMetadata, TransactionProgramContext, TransactionStatusSummary,
 };
 
 #[cfg(test)]

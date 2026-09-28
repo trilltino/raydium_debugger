@@ -50,6 +50,7 @@ pub(crate) fn router_with_state(state: Arc<AppState>) -> Router {
             axum::routing::patch(routes::update_casebook_signature),
         )
         .route("/api/debug", post(routes::debug))
+        .route("/api/diagnose", post(routes::diagnose))
         .route("/api/ask", post(routes::ask))
         .fallback_service(ServeDir::new(WEB_DIST).not_found_service(ServeFile::new(INDEX_HTML)))
         .layer(cors())

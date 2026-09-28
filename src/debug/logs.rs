@@ -15,9 +15,9 @@ use crate::failures::{
 };
 
 use super::types::{
-    CpiFrame, FreshnessInfo, InstructionDebugInfo, RaydiumPhase, RaydiumProduct,
-    RaydiumProductDebug, RootCause, TokenInstructionDetails, TokenInstructionParameter,
-    TransactionMetadata,
+    ComputeAttribution, CpiFrame, DecodedInstruction, ExecutionNode, FreshnessInfo,
+    InstructionDebugInfo, RaydiumPhase, RaydiumProduct, RaydiumProductDebug, RootCause,
+    TokenInstructionDetails, TokenInstructionParameter, TransactionMetadata,
 };
 
 /// Log/CPI parsing plus root-cause fallback heuristics.
@@ -60,6 +60,207 @@ pub(crate) fn parse_cpi_tree(logs: &[String]) -> Vec<CpiFrame> {
             None
         })
         .collect()
+}
+
+/// Reconstructs a nested execution tree from Solana program log stack events.
+pub(crate) fn build_execution_tree(
+    logs: &[String],
+    decoded_instructions: &[DecodedInstruction],
+    legacy_frames: &[CpiFrame],
+) -> Vec<ExecutionNode> {
+    let compute = compute_attribution(logs);
+    let mut nodes: Vec<ExecutionNode> = Vec::new();
+    let mut stack: Vec<usize> = Vec::new();
+    let mut invoke_counts_by_outer: Vec<usize> = Vec::new();
+
+    for (log_index, line) in logs.iter().enumerate() {
+        let Some((program_id, status, depth)) = program_log_event(line) else {
+            if let Some(current) = stack.last().copied() {
+                nodes[current].logs.push(line.clone());
+                nodes[current].log_end = log_index;
+            }
+            continue;
+        };
+
+        match status {
+            ProgramLogStatus::Invoke => {
+                while stack.len() >= depth {
+                    stack.pop();
+                }
+                let parent_id = stack.last().map(|idx| nodes[*idx].id.clone());
+                let outer_instruction_index = if depth == 1 {
+                    let index = invoke_counts_by_outer.len();
+                    invoke_counts_by_outer.push(0);
+                    Some(index)
+                } else {
+                    stack
+                        .last()
+                        .and_then(|idx| nodes[*idx].outer_instruction_index)
+                };
+                let inner_instruction_index = outer_instruction_index.and_then(|outer| {
+                    if depth <= 1 {
+                        None
+                    } else {
+                        if invoke_counts_by_outer.len() <= outer {
+                            invoke_counts_by_outer.resize(outer + 1, 0);
+                        }
+                        let next = invoke_counts_by_outer[outer];
+                        invoke_counts_by_outer[outer] += 1;
+                        Some(next)
+                    }
+                });
+                let decoded_instruction_id = match_decoded_instruction(
+                    decoded_instructions,
+                    outer_instruction_index,
+                    inner_instruction_index,
+                    program_id,
+                );
+                let id = format!("node_{}", nodes.len());
+                nodes.push(ExecutionNode {
+                    id: id.clone(),
+                    parent_id,
+                    depth,
+                    outer_instruction_index,
+                    inner_instruction_index,
+                    decoded_instruction_id,
+                    program_id: program_id.to_string(),
+                    program_label: program_label(program_id).to_string(),
+                    status: "invoke".to_string(),
+                    failed: false,
+                    log_start: log_index,
+                    log_end: log_index,
+                    logs: vec![line.clone()],
+                    token_instruction: token_instruction_for_legacy_frame(
+                        legacy_frames,
+                        program_id,
+                        depth,
+                    ),
+                    compute: None,
+                });
+                stack.push(nodes.len() - 1);
+            }
+            ProgramLogStatus::Success | ProgramLogStatus::Failed => {
+                let stack_index = stack
+                    .iter()
+                    .rposition(|idx| nodes[*idx].program_id == program_id)
+                    .map(|pos| stack[pos]);
+                if let Some(node_index) = stack_index {
+                    nodes[node_index].status = match status {
+                        ProgramLogStatus::Success => "success",
+                        ProgramLogStatus::Failed => "failed",
+                        ProgramLogStatus::Invoke => "invoke",
+                    }
+                    .to_string();
+                    nodes[node_index].failed = matches!(status, ProgramLogStatus::Failed);
+                    nodes[node_index].logs.push(line.clone());
+                    nodes[node_index].log_end = log_index;
+                    nodes[node_index].compute = compute_for_program(&compute, program_id, line);
+                    while stack.last().copied().is_some_and(|idx| idx != node_index) {
+                        stack.pop();
+                    }
+                    if stack.last().copied() == Some(node_index) {
+                        stack.pop();
+                    }
+                }
+            }
+        }
+    }
+
+    nodes
+}
+
+#[derive(Clone, Copy)]
+enum ProgramLogStatus {
+    Invoke,
+    Success,
+    Failed,
+}
+
+fn program_log_event(line: &str) -> Option<(&str, ProgramLogStatus, usize)> {
+    let rest = line.strip_prefix("Program ")?;
+    let mut parts = rest.split_whitespace();
+    let program_id = parts.next()?;
+    let status = parts.next()?;
+    match status {
+        "invoke" => {
+            let depth = parts
+                .next()
+                .and_then(|d| d.trim_matches(['[', ']']).parse::<usize>().ok())
+                .unwrap_or(1);
+            Some((program_id, ProgramLogStatus::Invoke, depth))
+        }
+        "success" => Some((program_id, ProgramLogStatus::Success, 0)),
+        "failed:" => Some((program_id, ProgramLogStatus::Failed, 0)),
+        _ => None,
+    }
+}
+
+fn match_decoded_instruction(
+    decoded: &[DecodedInstruction],
+    outer: Option<usize>,
+    inner: Option<usize>,
+    program_id: &str,
+) -> Option<String> {
+    decoded
+        .iter()
+        .find(|instruction| {
+            instruction.outer_instruction_index == outer.unwrap_or_default()
+                && instruction.inner_instruction_index == inner
+                && instruction.program_id == program_id
+        })
+        .map(|instruction| instruction.id.clone())
+}
+
+fn token_instruction_for_legacy_frame(
+    frames: &[CpiFrame],
+    program_id: &str,
+    depth: usize,
+) -> Option<TokenInstructionDetails> {
+    frames
+        .iter()
+        .find(|frame| {
+            frame.status == "invoke"
+                && frame.depth == depth
+                && frame.program_id == program_id
+                && frame.token_instruction.is_some()
+        })
+        .and_then(|frame| frame.token_instruction.clone())
+}
+
+fn compute_for_program(
+    attribution: &[ComputeAttribution],
+    program_id: &str,
+    closing_log: &str,
+) -> Option<ComputeAttribution> {
+    attribution
+        .iter()
+        .rev()
+        .find(|item| item.program_id == program_id && closing_log.contains(program_id))
+        .cloned()
+}
+
+pub(crate) fn compute_attribution(logs: &[String]) -> Vec<ComputeAttribution> {
+    logs.iter()
+        .filter_map(|line| parse_compute_log(line))
+        .collect()
+}
+
+fn parse_compute_log(line: &str) -> Option<ComputeAttribution> {
+    let rest = line.strip_prefix("Program ")?;
+    let (program_id, tail) = rest.split_once(" consumed ")?;
+    let (consumed, tail) = tail.split_once(" of ")?;
+    let (limit, _) = tail.split_once(" compute units")?;
+    let consumed = consumed.trim().parse::<u64>().ok()?;
+    let limit = limit.trim().parse::<u64>().ok()?;
+    Some(ComputeAttribution {
+        program_id: program_id.to_string(),
+        program_label: program_label(program_id).to_string(),
+        consumed,
+        consumed_exact: consumed.to_string(),
+        limit,
+        limit_exact: limit.to_string(),
+        source_log: line.to_string(),
+    })
 }
 
 /// Attaches decoded SPL Token/Token-2022 inner-instruction params to CPI invoke frames.
@@ -401,12 +602,10 @@ pub(crate) fn classify_root_cause(
         );
     }
     if freshness.slot_age.is_some_and(|age| age > 10_000) {
-        evidence.push(freshness.note.clone());
-        return root(
-            "stale_state",
-            "The execution slot is far behind the current observed slot; stale quote or state should be investigated.",
-            evidence,
-        );
+        evidence.push(format!(
+            "{} This is historical age only; it does not prove stale state at submission time.",
+            freshness.note
+        ));
     }
     if joined.contains("invalid account")
         || joined.contains("owner")

@@ -16,8 +16,8 @@ use crate::failures::{
 };
 
 use super::types::{
-    InstructionDebugInfo, RaydiumAccountRole, RaydiumContext, RaydiumInstructionRole,
-    RaydiumProductDebug, RaydiumSwapSummary, TokenMovement,
+    DecodedInstruction, InstructionDebugInfo, RaydiumAccountRole, RaydiumContext,
+    RaydiumInstructionRole, RaydiumProductDebug, RaydiumSwapSummary, TokenMovement,
 };
 
 type TokenBalancePair<'a> = (
@@ -29,6 +29,7 @@ type TokenBalancePair<'a> = (
 pub(crate) fn build_raydium_context(
     product: Option<&RaydiumProductDebug>,
     instructions: &[InstructionDebugInfo],
+    decoded_instructions: &[DecodedInstruction],
     account_keys: &[String],
     pre_token_balances: &[UiTransactionTokenBalance],
     post_token_balances: &[UiTransactionTokenBalance],
@@ -39,46 +40,60 @@ pub(crate) fn build_raydium_context(
     let mut instruction_roles = Vec::new();
     let mut account_roles = Vec::new();
 
-    for instruction in instructions {
-        let Some(role_table) = role_table(&instruction.program_id, instruction.accounts.len())
-        else {
-            if is_raydium_program(&instruction.program_id) {
-                warnings.push(format!(
-                    "Vault/token role could not be proven for instruction #{}; no static layout matched {} account(s).",
-                    instruction.index,
-                    instruction.accounts.len()
-                ));
-            }
-            continue;
-        };
+    let raydium_decoded = decoded_instructions
+        .iter()
+        .filter(|instruction| is_raydium_program(&instruction.program_id))
+        .cloned()
+        .collect::<Vec<_>>();
 
-        instruction_roles.push(RaydiumInstructionRole {
-            instruction_index: instruction.index,
-            program_id: instruction.program_id.clone(),
-            instruction_name: role_table.instruction_name.to_string(),
-            role_source: role_table.source.to_string(),
-            confidence: role_table.confidence.to_string(),
-        });
-
-        for (account, role) in instruction.accounts.iter().zip(role_table.roles.iter()) {
-            let movement = movements
-                .iter()
-                .find(|movement| movement.account_index == account.index);
-            account_roles.push(RaydiumAccountRole {
-                instruction_index: instruction.index,
-                account_index: account.index,
-                pubkey: account.pubkey.clone(),
-                role: (*role).to_string(),
-                mint: movement.map(|movement| movement.mint.clone()),
-                owner: account
-                    .owner
-                    .clone()
-                    .or_else(|| movement.and_then(|m| m.owner.clone())),
-                writable: account.writable,
-                signer: account.signer,
-                source: role_table.source.to_string(),
-                confidence: role_table.confidence.to_string(),
+    for instruction in &raydium_decoded {
+        if let Some(semantic) = &instruction.semantic_decode {
+            instruction_roles.push(RaydiumInstructionRole {
+                instruction_index: instruction.outer_instruction_index,
+                program_id: instruction.program_id.clone(),
+                instruction_name: semantic.instruction_name.clone(),
+                role_source: semantic.source.clone(),
+                confidence: semantic.confidence.clone(),
             });
+            for role in &semantic.accounts {
+                if role.confidence != "high" {
+                    continue;
+                }
+                let account_index = role.account_index.unwrap_or_default();
+                let movement = movements
+                    .iter()
+                    .find(|movement| movement.account_index == account_index);
+                account_roles.push(RaydiumAccountRole {
+                    instruction_index: instruction.outer_instruction_index,
+                    account_index,
+                    pubkey: role.pubkey.clone(),
+                    role: role.role.clone(),
+                    mint: movement.map(|movement| movement.mint.clone()),
+                    owner: movement.and_then(|m| m.owner.clone()),
+                    writable: false,
+                    signer: false,
+                    source: role.source.clone(),
+                    confidence: role.confidence.clone(),
+                });
+            }
+        } else {
+            warnings.push(format!(
+                "Raydium instruction {} observed in {} but exact discriminator/account layout decoding is not loaded yet.",
+                instruction.id, instruction.program_label
+            ));
+        }
+    }
+
+    for instruction in instructions {
+        if is_raydium_program(&instruction.program_id)
+            && !raydium_decoded
+                .iter()
+                .any(|decoded| decoded.outer_instruction_index == instruction.index)
+        {
+            warnings.push(format!(
+                "Raydium instruction #{} was observed, but semantic account roles were not proven.",
+                instruction.index
+            ));
         }
     }
 
@@ -88,142 +103,13 @@ pub(crate) fn build_raydium_context(
     has_context.then(|| RaydiumContext {
         product: Some(product.product.clone()),
         phase: product.phase.clone(),
+        decoded_instructions: raydium_decoded,
         instruction_roles,
         account_roles,
         token_movements: movements,
         swap_summary,
         warnings,
     })
-}
-
-struct RoleTable {
-    instruction_name: &'static str,
-    source: &'static str,
-    confidence: &'static str,
-    roles: &'static [&'static str],
-}
-
-fn role_table(program_id: &str, account_count: usize) -> Option<RoleTable> {
-    if matches!(
-        program_id,
-        RAYDIUM_CPMM_PROGRAM_ID | RAYDIUM_CPMM_LEGACY_PROGRAM_ID
-    ) {
-        return Some(RoleTable {
-            instruction_name: "cpmm_or_swap",
-            source: "Raydium CPMM IDL account layout",
-            confidence: "medium",
-            roles: prefix_roles(
-                account_count,
-                &[
-                    "payer",
-                    "authority",
-                    "amm_config",
-                    "pool_state",
-                    "input_token_account",
-                    "output_token_account",
-                    "input_vault",
-                    "output_vault",
-                    "input_token_program",
-                    "output_token_program",
-                    "input_mint",
-                    "output_mint",
-                    "observation_state",
-                ],
-            ),
-        });
-    }
-
-    if program_id == RAYDIUM_CLMM_PROGRAM_ID {
-        return Some(RoleTable {
-            instruction_name: "clmm_or_swap",
-            source: "Raydium CLMM IDL account layout",
-            confidence: "medium",
-            roles: prefix_roles(
-                account_count,
-                &[
-                    "payer",
-                    "amm_config",
-                    "pool_state",
-                    "input_token_account",
-                    "output_token_account",
-                    "input_vault",
-                    "output_vault",
-                    "observation_state",
-                    "token_program",
-                    "tick_array_0",
-                    "tick_array_1",
-                    "tick_array_2",
-                    "memo_program",
-                ],
-            ),
-        });
-    }
-
-    if program_id == RAYDIUM_LAUNCHLAB_PROGRAM_ID {
-        return Some(RoleTable {
-            instruction_name: "launchlab_flow",
-            source: "Raydium LaunchLab IDL account layout",
-            confidence: "medium",
-            roles: prefix_roles(
-                account_count,
-                &[
-                    "payer",
-                    "creator",
-                    "platform_config",
-                    "pool_state",
-                    "base_mint",
-                    "quote_mint",
-                    "user_base_token",
-                    "user_quote_token",
-                    "base_vault",
-                    "quote_vault",
-                    "token_program",
-                    "associated_token_program",
-                    "system_program",
-                ],
-            ),
-        });
-    }
-
-    if matches!(
-        program_id,
-        RAYDIUM_AMM_V4_PROGRAM_ID | RAYDIUM_AMM_V4_LEGACY_PROGRAM_ID
-    ) {
-        return Some(RoleTable {
-            instruction_name: "amm_v4_or_swap",
-            source: "Raydium AMM v4 static account layout",
-            confidence: "medium",
-            roles: prefix_roles(
-                account_count,
-                &[
-                    "token_program",
-                    "amm",
-                    "amm_authority",
-                    "amm_open_orders",
-                    "amm_target_orders",
-                    "pool_coin_vault",
-                    "pool_pc_vault",
-                    "serum_program",
-                    "serum_market",
-                    "serum_bids",
-                    "serum_asks",
-                    "serum_event_queue",
-                    "serum_coin_vault",
-                    "serum_pc_vault",
-                    "serum_vault_signer",
-                    "user_source",
-                    "user_destination",
-                    "user_owner",
-                ],
-            ),
-        });
-    }
-
-    None
-}
-
-fn prefix_roles(account_count: usize, known: &'static [&'static str]) -> &'static [&'static str] {
-    &known[..known.len().min(account_count)]
 }
 
 fn is_raydium_program(program_id: &str) -> bool {
@@ -312,18 +198,35 @@ fn swap_summary(
     account_roles: &[RaydiumAccountRole],
     warnings: &mut Vec<String>,
 ) -> Option<RaydiumSwapSummary> {
-    let input = movements
+    let roles_are_proven = account_roles
         .iter()
-        .filter(|movement| movement.delta_raw.starts_with('-'))
-        .min_by_key(|movement| movement.delta_raw.parse::<i128>().unwrap_or_default());
-    let output = movements
-        .iter()
-        .filter(|movement| movement.delta_raw.parse::<i128>().unwrap_or_default() > 0)
-        .max_by_key(|movement| movement.delta_raw.parse::<i128>().unwrap_or_default());
+        .any(|role| role.confidence == "high" && role.role.contains("token"));
+    let input = roles_are_proven
+        .then(|| {
+            movements
+                .iter()
+                .filter(|movement| movement.delta_raw.starts_with('-'))
+                .min_by_key(|movement| movement.delta_raw.parse::<i128>().unwrap_or_default())
+        })
+        .flatten();
+    let output = roles_are_proven
+        .then(|| {
+            movements
+                .iter()
+                .filter(|movement| movement.delta_raw.parse::<i128>().unwrap_or_default() > 0)
+                .max_by_key(|movement| movement.delta_raw.parse::<i128>().unwrap_or_default())
+        })
+        .flatten();
 
     if input.is_none() && output.is_none() && !account_roles.is_empty() {
         warnings.push(
             "Token movement was not available from RPC metadata; swap amounts could not be proven."
+                .to_string(),
+        );
+    }
+    if !roles_are_proven && !movements.is_empty() {
+        warnings.push(
+            "Token movements were observed, but user/vault swap legs were not inferred because exact Raydium account roles were not proven."
                 .to_string(),
         );
     }
@@ -379,36 +282,8 @@ struct DecodedSwapLimits {
     max_input_raw: Option<String>,
 }
 
-fn decoded_swap_limits(instructions: &[InstructionDebugInfo]) -> DecodedSwapLimits {
-    instructions
-        .iter()
-        .find_map(|instruction| {
-            if !is_raydium_program(&instruction.program_id) {
-                return None;
-            }
-            let data = bs58::decode(&instruction.data_base58).into_vec().ok()?;
-            if matches!(
-                instruction.program_id.as_str(),
-                RAYDIUM_AMM_V4_PROGRAM_ID | RAYDIUM_AMM_V4_LEGACY_PROGRAM_ID
-            ) {
-                return decode_two_u64(data.get(1..17)?);
-            }
-            decode_two_u64(data.get(8..24)?)
-        })
-        .unwrap_or_default()
-}
-
-fn decode_two_u64(data: &[u8]) -> Option<DecodedSwapLimits> {
-    if data.len() < 16 {
-        return None;
-    }
-    let amount = u64::from_le_bytes(data[0..8].try_into().ok()?);
-    let threshold = u64::from_le_bytes(data[8..16].try_into().ok()?);
-    Some(DecodedSwapLimits {
-        input_amount_raw: (amount > 0).then(|| amount.to_string()),
-        min_output_raw: (threshold > 0).then(|| threshold.to_string()),
-        max_input_raw: None,
-    })
+fn decoded_swap_limits(_instructions: &[InstructionDebugInfo]) -> DecodedSwapLimits {
+    DecodedSwapLimits::default()
 }
 
 fn slippage_result(
@@ -470,7 +345,11 @@ mod tests {
             matched_program_ids: vec![RAYDIUM_CPMM_PROGRAM_ID.to_string()],
             evidence: Vec::new(),
         };
-        let context = build_raydium_context(Some(&product), &[ix], &[], &[], &[]).unwrap();
-        assert_eq!(context.account_roles[3].role, "pool_state");
+        let context = build_raydium_context(Some(&product), &[ix], &[], &[], &[], &[]).unwrap();
+        assert!(context.account_roles.is_empty());
+        assert!(context
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("semantic account roles were not proven")));
     }
 }

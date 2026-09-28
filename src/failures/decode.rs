@@ -8,6 +8,8 @@ use super::actions::{
 use super::programs::*;
 use super::types::{FailureCode, StandardizedFailure};
 use super::{anchor, native, raydium, token};
+use serde::Deserialize;
+use std::sync::OnceLock;
 
 /// Decodes raw Solana errors and logs into stable UI-facing failures.
 pub fn parse_custom_error_code(error_str: &str) -> Option<u32> {
@@ -236,6 +238,9 @@ fn error_name(entry: FailureCode) -> Option<String> {
 }
 
 pub(crate) fn lookup_code(program_id: &str, code: u32) -> Option<FailureCode> {
+    if let Some(entry) = lookup_generated_raydium_code(program_id, code) {
+        return Some(entry);
+    }
     let table = match program_id {
         RAYDIUM_CLMM_PROGRAM_ID => raydium::RAYDIUM_CLMM_ERRORS,
         RAYDIUM_CPMM_PROGRAM_ID | RAYDIUM_CPMM_LEGACY_PROGRAM_ID => raydium::RAYDIUM_CPMM_ERRORS,
@@ -249,6 +254,89 @@ pub(crate) fn lookup_code(program_id: &str, code: u32) -> Option<FailureCode> {
         _ => &[],
     };
     table.iter().copied().find(|entry| entry.code == code)
+}
+
+fn lookup_generated_raydium_code(program_id: &str, code: u32) -> Option<FailureCode> {
+    let product = generated_product_for_program(program_id)?;
+    generated_registry()
+        .iter()
+        .find(|source| source.product == product)
+        .and_then(|source| source.errors.iter().find(|entry| entry.code == code))
+        .map(|entry| FailureCode {
+            code: entry.code,
+            name: entry.name,
+            message: entry.message,
+        })
+}
+
+fn generated_product_for_program(program_id: &str) -> Option<&'static str> {
+    match program_id {
+        RAYDIUM_CLMM_PROGRAM_ID => Some("raydium_clmm"),
+        RAYDIUM_CPMM_PROGRAM_ID | RAYDIUM_CPMM_LEGACY_PROGRAM_ID => Some("raydium_cpmm"),
+        RAYDIUM_LAUNCHLAB_PROGRAM_ID => Some("raydium_launchpad"),
+        RAYDIUM_AMM_V4_PROGRAM_ID | RAYDIUM_AMM_V4_LEGACY_PROGRAM_ID => Some("raydium_amm_v4"),
+        _ => None,
+    }
+}
+
+fn generated_registry() -> &'static [GeneratedSource] {
+    static REGISTRY: OnceLock<Vec<GeneratedSource>> = OnceLock::new();
+    REGISTRY
+        .get_or_init(|| {
+            let raw = include_str!("raydium_registry.generated.json");
+            let snapshot: GeneratedSnapshot =
+                serde_json::from_str(raw).expect("generated Raydium registry must be valid JSON");
+            snapshot
+                .sources
+                .into_iter()
+                .map(|source| GeneratedSource {
+                    product: leak(source.product),
+                    errors: source
+                        .errors
+                        .into_iter()
+                        .map(|entry| GeneratedFailureCode {
+                            code: entry.code,
+                            name: leak(entry.name),
+                            message: leak(entry.message),
+                        })
+                        .collect(),
+                })
+                .collect()
+        })
+        .as_slice()
+}
+
+fn leak(value: String) -> &'static str {
+    Box::leak(value.into_boxed_str())
+}
+
+#[derive(Deserialize)]
+struct GeneratedSnapshot {
+    sources: Vec<GeneratedSourceOwned>,
+}
+
+#[derive(Deserialize)]
+struct GeneratedSourceOwned {
+    product: String,
+    errors: Vec<GeneratedFailureCodeOwned>,
+}
+
+#[derive(Deserialize)]
+struct GeneratedFailureCodeOwned {
+    code: u32,
+    name: String,
+    message: String,
+}
+
+struct GeneratedSource {
+    product: &'static str,
+    errors: Vec<GeneratedFailureCode>,
+}
+
+struct GeneratedFailureCode {
+    code: u32,
+    name: &'static str,
+    message: &'static str,
 }
 
 pub(crate) fn lookup_anchor_framework_code(code: u32) -> Option<FailureCode> {

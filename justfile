@@ -33,7 +33,7 @@ check:
     cargo check --workspace --all-targets --locked
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     cargo test --workspace --all-features --locked
-    cargo run -p xtask -- raydium-registry check
+    cargo run -p xtask -- raydium-registry validate
     npm --prefix web run typecheck
     npm --prefix web run build
 
@@ -42,7 +42,7 @@ release-check:
     cargo doc --workspace --no-deps --locked
     cargo deny check
     cargo package --list --allow-dirty
-    cargo run -p xtask -- raydium-registry check
+    cargo run -p xtask -- raydium-registry validate
     npm --prefix web audit --omit=dev
     npm --prefix web run test:e2e
 

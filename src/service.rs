@@ -46,6 +46,35 @@ pub struct DebugResponse {
     pub formatted_text: String,
 }
 
+/// V2 diagnosis response that can represent both landed and non-observed signatures.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosticResponse {
+    pub observation: ObservationStatus,
+    pub diagnosis: Diagnosis,
+    pub transaction: Option<TransactionDebugInfo>,
+    pub formatted_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObservationStatus {
+    pub status: String,
+    pub cluster: Option<String>,
+    pub providers_queried: Vec<String>,
+    pub evidence: Vec<String>,
+    pub hypotheses: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Diagnosis {
+    pub title: String,
+    pub explanation: String,
+    pub primary_action: String,
+    pub evidence: Vec<String>,
+    pub confidence: String,
+    pub category: String,
+    pub copy_markdown: String,
+}
+
 /// Optional AI question request over an existing debug result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiAskRequest {
@@ -78,6 +107,84 @@ pub fn run_debug_request_blocking(request: DebugRequest) -> anyhow::Result<Debug
     })
 }
 
+pub fn run_diagnostic_request_blocking(
+    request: DebugRequest,
+) -> anyhow::Result<DiagnosticResponse> {
+    let cluster = request.cluster;
+    match run_debug_request_blocking(request.clone()) {
+        Ok(response) => {
+            let observation = ObservationStatus {
+                status: "landed".to_string(),
+                cluster: response
+                    .info
+                    .provider
+                    .cluster
+                    .clone()
+                    .or_else(|| cluster.map(|cluster| cluster.as_str().to_string())),
+                providers_queried: observed_providers(&response.info),
+                evidence: vec![
+                    format!(
+                        "Transaction was fetched at slot {}.",
+                        response.info.slot_exact
+                    ),
+                    format!(
+                        "Confirmation evidence: {}.",
+                        response
+                            .info
+                            .status
+                            .confirmation_status
+                            .as_deref()
+                            .unwrap_or("confirmed fetch")
+                    ),
+                ],
+                hypotheses: Vec::new(),
+            };
+            let diagnosis = diagnosis_from_transaction(&response.info);
+            Ok(DiagnosticResponse {
+                observation,
+                diagnosis,
+                formatted_text: response.formatted_text,
+                transaction: Some(response.info),
+            })
+        }
+        Err(error) if looks_not_observed(&error) => {
+            let cluster_label = cluster.map(|cluster| cluster.as_str().to_string());
+            let observation = ObservationStatus {
+                status: "not_observed_on_selected_provider".to_string(),
+                cluster: cluster_label.clone(),
+                providers_queried: cluster_label
+                    .as_ref()
+                    .map(|cluster| vec![format!("configured Triton {cluster} endpoint")])
+                    .unwrap_or_else(|| vec!["configured Triton endpoint".to_string()]),
+                evidence: vec![error.to_string()],
+                hypotheses: vec![
+                    "The transaction was never submitted.".to_string(),
+                    "The signature belongs to a different cluster or provider history.".to_string(),
+                    "The transaction expired or was dropped before confirmation.".to_string(),
+                    "The wallet, SDK, RPC, or relay failed before the transaction landed."
+                        .to_string(),
+                ],
+            };
+            let diagnosis = Diagnosis {
+                title: "Transaction was not observed on the selected provider".to_string(),
+                explanation: "The debugger could not fetch a landed transaction for this signature on the selected cluster/provider. With a signature alone, it cannot prove blockhash expiry, packet drop, or priority-fee failure.".to_string(),
+                primary_action: "Verify the cluster, then retry with submission telemetry or the raw signed transaction if you need pre-landing diagnosis.".to_string(),
+                evidence: observation.evidence.clone(),
+                confidence: "medium".to_string(),
+                category: "not_observed".to_string(),
+                copy_markdown: not_observed_markdown(&observation),
+            };
+            Ok(DiagnosticResponse {
+                observation,
+                diagnosis,
+                transaction: None,
+                formatted_text: String::new(),
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn reject_rpc_override(rpc_url: Option<&str>) -> anyhow::Result<()> {
     if rpc_url.is_some_and(|url| !url.trim().is_empty()) {
         anyhow::bail!(
@@ -85,6 +192,128 @@ fn reject_rpc_override(rpc_url: Option<&str>) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+fn looks_not_observed(error: &anyhow::Error) -> bool {
+    let message = format!("{error:#}").to_ascii_lowercase();
+    message.contains("was not found on the selected cluster/rpc endpoint")
+        || message.contains("invalid type: null")
+}
+
+fn observed_providers(info: &TransactionDebugInfo) -> Vec<String> {
+    let mut providers = Vec::new();
+    if !info.provider.rpc_endpoint_redacted.is_empty() {
+        providers.push(info.provider.rpc_endpoint_redacted.clone());
+    }
+    if info.rpc.fallback_used {
+        if let Some(fallback) = &info.provider.fallback_endpoint_redacted {
+            providers.push(fallback.clone());
+        }
+    }
+    providers
+}
+
+fn diagnosis_from_transaction(info: &TransactionDebugInfo) -> Diagnosis {
+    let title = info
+        .failure
+        .as_ref()
+        .and_then(|failure| failure.plain_title.clone())
+        .unwrap_or_else(|| info.experience.headline.clone());
+    let explanation = info
+        .failure
+        .as_ref()
+        .and_then(|failure| failure.plain_explanation.clone())
+        .unwrap_or_else(|| info.experience.message.clone());
+    let primary_action = info
+        .failure
+        .as_ref()
+        .and_then(|failure| failure.primary_action.clone())
+        .unwrap_or_else(|| info.experience.next_step.clone());
+    let evidence = info
+        .failure
+        .as_ref()
+        .map(|failure| {
+            if failure.evidence_summary.is_empty() {
+                failure.evidence.clone()
+            } else {
+                failure.evidence_summary.clone()
+            }
+        })
+        .unwrap_or_else(|| info.root_cause.evidence.clone());
+    let confidence = info
+        .failure
+        .as_ref()
+        .map(|failure| failure.confidence.clone())
+        .unwrap_or_else(|| "medium".to_string());
+    let category = info
+        .failure
+        .as_ref()
+        .map(|failure| failure.category.clone())
+        .unwrap_or_else(|| info.root_cause.category.clone());
+    let copy_markdown =
+        transaction_markdown(info, &title, &explanation, &primary_action, &evidence);
+    Diagnosis {
+        title,
+        explanation,
+        primary_action,
+        evidence,
+        confidence,
+        category,
+        copy_markdown,
+    }
+}
+
+fn transaction_markdown(
+    info: &TransactionDebugInfo,
+    title: &str,
+    explanation: &str,
+    primary_action: &str,
+    evidence: &[String],
+) -> String {
+    let mut lines = vec![
+        format!("### {title}"),
+        String::new(),
+        format!("Signature: `{}`", info.signature),
+        format!(
+            "Cluster: `{}`",
+            info.provider.cluster.as_deref().unwrap_or("unknown")
+        ),
+        format!("Status: `{}`", info.experience.status_label),
+        String::new(),
+        explanation.to_string(),
+        String::new(),
+        format!("Primary action: {primary_action}"),
+    ];
+    if !evidence.is_empty() {
+        lines.push(String::new());
+        lines.push("Evidence:".to_string());
+        lines.extend(evidence.iter().map(|line| format!("- {line}")));
+    }
+    lines.join("\n")
+}
+
+fn not_observed_markdown(observation: &ObservationStatus) -> String {
+    let mut lines = vec![
+        "### Transaction was not observed on the selected provider".to_string(),
+        String::new(),
+        format!(
+            "Cluster: `{}`",
+            observation.cluster.as_deref().unwrap_or("unknown")
+        ),
+        "The debugger could not fetch a landed transaction for this signature.".to_string(),
+        String::new(),
+        "Evidence:".to_string(),
+    ];
+    lines.extend(observation.evidence.iter().map(|line| format!("- {line}")));
+    lines.push(String::new());
+    lines.push("Possible causes, not proven from a signature alone:".to_string());
+    lines.extend(
+        observation
+            .hypotheses
+            .iter()
+            .map(|line| format!("- {line}")),
+    );
+    lines.join("\n")
 }
 
 /// Runs the optional AI path when the crate is built with the `ai` feature.

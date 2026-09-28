@@ -3,7 +3,7 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, master]
 
 jobs:
   check:
@@ -30,8 +30,8 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Rust tests
         run: cargo test --workspace --all-features --locked
-      - name: Raydium registry drift
-        run: cargo run -p xtask -- raydium-registry check
+      - name: Raydium registry validate
+        run: cargo run -p xtask -- raydium-registry validate
       - name: Rust docs
         run: cargo doc --workspace --no-deps --locked
       - name: Dependency policy

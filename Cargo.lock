@@ -4320,6 +4320,7 @@ name = "raydium_debugger"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode",
  "bs58",
  "chrono",
  "clap",

@@ -34,6 +34,12 @@ pub struct TransactionDebugInfo {
     pub failing_instruction: Option<InstructionDebugInfo>,
     /// Parsed CPI/log frames.
     pub cpi_tree: Vec<CpiFrame>,
+    /// Normalized outer and inner instructions used by semantic decoders.
+    #[serde(default)]
+    pub decoded_instructions: Vec<DecodedInstruction>,
+    /// Nested execution tree reconstructed from logs and inner-instruction metadata.
+    #[serde(default)]
+    pub execution_tree: Vec<ExecutionNode>,
     /// Account owner, signer, writable, and balance evidence.
     pub accounts: Vec<AccountEvidence>,
     /// Rent-exemption evidence for fetched accounts.
@@ -52,6 +58,9 @@ pub struct TransactionDebugInfo {
     pub fee_paid_exact: String,
     /// Unique invoked program IDs.
     pub program_ids: Vec<String>,
+    /// Grouped program context, separate from Raydium product classification.
+    #[serde(default)]
+    pub program_context: TransactionProgramContext,
     /// Redacted RPC endpoint metadata.
     pub rpc: RpcDebugInfo,
     /// Provider-level metadata for Triton/custom RPC debugging.
@@ -62,6 +71,15 @@ pub struct TransactionDebugInfo {
     pub raydium_context: Option<RaydiumContext>,
     /// Slot freshness note relative to the serving RPC.
     pub freshness: FreshnessInfo,
+    /// Parsed transaction-level compute budget configuration.
+    #[serde(default)]
+    pub compute_budget: ComputeBudgetInfo,
+    /// Per-program/frame compute evidence parsed from runtime logs.
+    #[serde(default)]
+    pub compute_attribution: Vec<ComputeAttribution>,
+    /// Resource evidence that distinguishes compute, loaded account data, and message size.
+    #[serde(default)]
+    pub resource_usage: ResourceUsage,
     /// Friendly status copy for product UIs.
     pub experience: ExperienceSummary,
     /// UI-ready decoded failure.
@@ -98,6 +116,10 @@ pub struct RateLimitDebugInfo {
 pub struct TransactionStatusSummary {
     pub landed: bool,
     pub finalized: bool,
+    #[serde(default)]
+    pub confirmation_status: Option<String>,
+    #[serde(default)]
+    pub finalized_known: bool,
     pub err: Option<String>,
 }
 
@@ -128,6 +150,153 @@ pub struct TransactionMetadata {
     /// Exact v1 loaded-account data size limit rendered without JavaScript number precision loss.
     pub v1_loaded_accounts_data_size_limit_exact: Option<String>,
     pub fetch_warnings: Vec<String>,
+}
+
+/// Grouped program context that is not specific to any one protocol family.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TransactionProgramContext {
+    pub invoked_programs: Vec<ProgramInvocationSummary>,
+    pub token_programs: Vec<String>,
+    pub system_programs: Vec<String>,
+    pub raydium_programs: Vec<String>,
+}
+
+/// One invoked program plus a stable display label.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProgramInvocationSummary {
+    pub program_id: String,
+    pub program_label: String,
+}
+
+/// Normalized instruction record for both top-level and inner instructions.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DecodedInstruction {
+    pub id: String,
+    pub outer_instruction_index: usize,
+    pub inner_instruction_index: Option<usize>,
+    pub invocation_kind: String,
+    pub program_id: String,
+    pub program_label: String,
+    pub accounts: Vec<String>,
+    pub account_indexes: Vec<u8>,
+    pub raw_data_base58: String,
+    pub discriminator: Option<String>,
+    pub semantic_decode: Option<InstructionSemanticDecode>,
+}
+
+/// Conservative semantic decode. Unknown means the debugger refused to guess.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct InstructionSemanticDecode {
+    pub protocol: String,
+    pub instruction_name: String,
+    pub source: String,
+    pub confidence: String,
+    pub arguments: Vec<DecodedArgument>,
+    pub accounts: Vec<DecodedAccountRole>,
+    pub remaining_accounts: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DecodedArgument {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DecodedAccountRole {
+    pub role: String,
+    pub pubkey: String,
+    pub account_index: Option<usize>,
+    pub source: String,
+    pub confidence: String,
+}
+
+/// Nested execution node reconstructed from program logs.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ExecutionNode {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub depth: usize,
+    pub outer_instruction_index: Option<usize>,
+    pub inner_instruction_index: Option<usize>,
+    pub decoded_instruction_id: Option<String>,
+    pub program_id: String,
+    pub program_label: String,
+    pub status: String,
+    pub failed: bool,
+    pub log_start: usize,
+    pub log_end: usize,
+    pub logs: Vec<String>,
+    pub token_instruction: Option<TokenInstructionDetails>,
+    pub compute: Option<ComputeAttribution>,
+}
+
+/// Transaction-level compute budget settings decoded from Compute Budget instructions.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ComputeBudgetInfo {
+    pub compute_unit_limit: Option<u64>,
+    pub compute_unit_limit_exact: Option<String>,
+    pub compute_unit_price_micro_lamports: Option<u64>,
+    pub compute_unit_price_micro_lamports_exact: Option<String>,
+    pub loaded_accounts_data_size_limit: Option<u64>,
+    pub loaded_accounts_data_size_limit_exact: Option<String>,
+    pub heap_frame_bytes: Option<u64>,
+    pub heap_frame_bytes_exact: Option<String>,
+    pub deprecated_request_units: Option<DeprecatedRequestUnits>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeprecatedRequestUnits {
+    pub units: u64,
+    pub units_exact: String,
+    pub additional_fee_lamports: u64,
+    pub additional_fee_lamports_exact: String,
+}
+
+/// Compute usage evidence parsed from logs for a frame/program.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ComputeAttribution {
+    pub program_id: String,
+    pub program_label: String,
+    pub consumed: u64,
+    pub consumed_exact: String,
+    pub limit: u64,
+    pub limit_exact: String,
+    pub source_log: String,
+}
+
+/// Resource evidence split by concept so ALT/message/CU explanations stay truthful.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ResourceUsage {
+    pub execution_compute: Option<ExecutionComputeUsage>,
+    pub loaded_account_data: Option<LoadedAccountDataUsage>,
+    pub transaction_size: Option<TransactionSizeUsage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionComputeUsage {
+    pub consumed: Option<u64>,
+    pub consumed_exact: Option<String>,
+    pub limit: Option<u64>,
+    pub limit_exact: Option<String>,
+    pub price_micro_lamports: Option<u64>,
+    pub price_micro_lamports_exact: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoadedAccountDataUsage {
+    pub limit: Option<u64>,
+    pub limit_exact: Option<String>,
+    pub observed_account_data_bytes: Option<u64>,
+    pub observed_account_data_bytes_exact: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionSizeUsage {
+    pub serialized_size_bytes: Option<usize>,
+    pub serialized_size_bytes_exact: Option<String>,
+    pub uses_address_lookup_tables: bool,
+    pub note: String,
 }
 
 /// A top-level instruction plus decoded account metadata.
@@ -314,6 +483,8 @@ pub struct RaydiumProductDebug {
 pub struct RaydiumContext {
     pub product: Option<RaydiumProduct>,
     pub phase: Option<RaydiumPhase>,
+    #[serde(default)]
+    pub decoded_instructions: Vec<DecodedInstruction>,
     pub instruction_roles: Vec<RaydiumInstructionRole>,
     pub account_roles: Vec<RaydiumAccountRole>,
     pub token_movements: Vec<TokenMovement>,

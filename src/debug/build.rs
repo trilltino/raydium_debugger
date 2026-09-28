@@ -7,11 +7,15 @@
 //! for every output path.
 
 use solana_sdk::{account::Account, pubkey::Pubkey, transaction::VersionedTransaction};
+use solana_transaction_status::{UiInstruction, UiParsedInstruction};
 use std::collections::BTreeSet;
 
 use crate::failures::{
     decode_standardized_failure, enrich_with_onchain_anchor_idl, parse_failing_instruction_index,
-    program_label,
+    program_label, ASSOCIATED_TOKEN_PROGRAM_ID, COMPUTE_BUDGET_PROGRAM_ID, MEMO_PROGRAM_ID,
+    RAYDIUM_AMM_V4_LEGACY_PROGRAM_ID, RAYDIUM_AMM_V4_PROGRAM_ID, RAYDIUM_CLMM_PROGRAM_ID,
+    RAYDIUM_CPMM_LEGACY_PROGRAM_ID, RAYDIUM_CPMM_PROGRAM_ID, RAYDIUM_LAUNCHLAB_PROGRAM_ID,
+    SPL_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID,
 };
 use crate::rpc::RpcDebugInfo;
 use crate::transaction_fetch::{
@@ -23,16 +27,21 @@ use super::accounts::{
     build_account_evidence, build_rent_evidence, lamport_delta, AccountEvidenceContext,
 };
 use super::experience::{build_experience_summary, ExperienceInput};
-use super::instructions::{instruction_discriminator, is_signer, is_writable, v1_resource_limits};
+use super::instructions::{
+    compute_budget_info, instruction_discriminator, is_signer, is_writable, v1_resource_limits,
+};
 use super::logs::{
-    attach_token_cpi_params, classify_root_cause, freshness_note, parse_cpi_tree,
-    recommended_actions, root_cause_from_failure,
+    attach_token_cpi_params, build_execution_tree, classify_root_cause, compute_attribution,
+    freshness_note, parse_cpi_tree, recommended_actions, root_cause_from_failure,
 };
 use super::raydium::classify_raydium_product;
 use super::raydium_context::build_raydium_context;
 use super::types::{
-    AccountChange, FreshnessInfo, InstructionAccountMeta, InstructionDebugInfo, ProviderDebugInfo,
-    TransactionDebugInfo, TransactionMetadata, TransactionStatusSummary,
+    AccountChange, ComputeBudgetInfo, DecodedInstruction, ExecutionComputeUsage, FreshnessInfo,
+    InstructionAccountMeta, InstructionDebugInfo, InstructionSemanticDecode,
+    LoadedAccountDataUsage, ProgramInvocationSummary, ProviderDebugInfo, ResourceUsage,
+    TransactionDebugInfo, TransactionMetadata, TransactionProgramContext, TransactionSizeUsage,
+    TransactionStatusSummary,
 };
 
 /// Fetches a transaction and assembles the structured debug report.
@@ -132,10 +141,37 @@ pub fn debug_transaction(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
+    let program_context = build_program_context(&program_ids);
+    let decoded_instructions = build_decoded_instructions(
+        decoded,
+        fetched.parsed_message.as_ref(),
+        confirmed,
+        &account_keys,
+    );
+    let execution_tree = build_execution_tree(&logs, &decoded_instructions, &cpi_tree);
+    let compute_budget = decoded
+        .map(|tx| {
+            compute_budget_info(
+                tx.message
+                    .instructions()
+                    .iter()
+                    .map(|ix| (ix.program_id_index, ix.data.as_slice())),
+                &account_keys,
+            )
+        })
+        .unwrap_or_default();
+    let compute_attribution = compute_attribution(&logs);
+    let resource_usage = build_resource_usage(
+        compute_units_consumed,
+        &compute_budget,
+        &metadata,
+        &account_infos,
+    );
     let raydium_product = classify_raydium_product(&outer_instructions, &program_ids, &logs);
     let raydium_context = build_raydium_context(
         raydium_product.as_ref(),
         &outer_instructions,
+        &decoded_instructions,
         &account_keys,
         &pre_token_balances,
         &post_token_balances,
@@ -188,7 +224,9 @@ pub fn debug_transaction(
         timestamp: confirmed.block_time,
         status: TransactionStatusSummary {
             landed: true,
-            finalized: true,
+            finalized: false,
+            confirmation_status: Some("confirmed".to_string()),
+            finalized_known: false,
             err: error.clone(),
         },
         success,
@@ -197,6 +235,8 @@ pub fn debug_transaction(
         outer_instructions,
         failing_instruction,
         cpi_tree,
+        decoded_instructions,
+        execution_tree,
         accounts,
         rent_evidence,
         logs,
@@ -206,16 +246,306 @@ pub fn debug_transaction(
         fee_paid,
         fee_paid_exact: fee_paid.to_string(),
         program_ids,
+        program_context,
         rpc: RpcDebugInfo::default(),
         provider: ProviderDebugInfo::default(),
         raydium_product: raydium_product.clone(),
         raydium_context,
         freshness,
+        compute_budget,
+        compute_attribution,
+        resource_usage,
         experience,
         failure,
         root_cause,
         recommended_actions,
     })
+}
+
+fn build_program_context(program_ids: &[String]) -> TransactionProgramContext {
+    let invoked_programs = program_ids
+        .iter()
+        .map(|program_id| ProgramInvocationSummary {
+            program_id: program_id.clone(),
+            program_label: program_label(program_id).to_string(),
+        })
+        .collect();
+    TransactionProgramContext {
+        invoked_programs,
+        token_programs: filter_programs(
+            program_ids,
+            &[SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID],
+        ),
+        system_programs: filter_programs(
+            program_ids,
+            &[
+                SYSTEM_PROGRAM_ID,
+                ASSOCIATED_TOKEN_PROGRAM_ID,
+                COMPUTE_BUDGET_PROGRAM_ID,
+                MEMO_PROGRAM_ID,
+            ],
+        ),
+        raydium_programs: filter_programs(
+            program_ids,
+            &[
+                RAYDIUM_AMM_V4_PROGRAM_ID,
+                RAYDIUM_AMM_V4_LEGACY_PROGRAM_ID,
+                RAYDIUM_CLMM_PROGRAM_ID,
+                RAYDIUM_CPMM_PROGRAM_ID,
+                RAYDIUM_CPMM_LEGACY_PROGRAM_ID,
+                RAYDIUM_LAUNCHLAB_PROGRAM_ID,
+            ],
+        ),
+    }
+}
+
+fn filter_programs(program_ids: &[String], candidates: &[&str]) -> Vec<String> {
+    program_ids
+        .iter()
+        .filter(|program_id| candidates.iter().any(|candidate| program_id == candidate))
+        .cloned()
+        .collect()
+}
+
+fn build_decoded_instructions(
+    decoded: Option<&VersionedTransaction>,
+    parsed_message: Option<&ParsedTransactionMessage>,
+    confirmed: &solana_transaction_status::EncodedConfirmedTransactionWithStatusMeta,
+    account_keys: &[String],
+) -> Vec<DecodedInstruction> {
+    let mut instructions = Vec::new();
+    if let Some(tx) = decoded {
+        for (index, ix) in tx.message.instructions().iter().enumerate() {
+            let program_id = account_keys
+                .get(ix.program_id_index as usize)
+                .cloned()
+                .unwrap_or_else(|| format!("account_index_{}", ix.program_id_index));
+            let accounts = ix
+                .accounts
+                .iter()
+                .filter_map(|idx| account_keys.get(*idx as usize).cloned())
+                .collect::<Vec<_>>();
+            let raw_data_base58 = bs58::encode(&ix.data).into_string();
+            instructions.push(decoded_instruction(
+                format!("outer_{index}"),
+                index,
+                None,
+                "outer",
+                program_id,
+                ix.accounts.clone(),
+                accounts,
+                raw_data_base58,
+                instruction_discriminator(&ix.data),
+            ));
+        }
+    } else if let Some(message) = parsed_message {
+        for ix in &message.instructions {
+            instructions.push(decoded_instruction(
+                format!("outer_{}", ix.index),
+                ix.index,
+                None,
+                "outer",
+                ix.program_id.clone(),
+                ix.account_indexes.clone(),
+                ix.accounts.clone(),
+                ix.data_base58.clone(),
+                bs58::decode(&ix.data_base58)
+                    .into_vec()
+                    .ok()
+                    .and_then(|data| instruction_discriminator(&data)),
+            ));
+        }
+    }
+
+    if let Some(meta) = confirmed.transaction.meta.as_ref() {
+        if let Some(inner_groups) = Option::<Vec<_>>::from(meta.inner_instructions.clone()) {
+            for group in inner_groups {
+                for (inner_index, ix) in group.instructions.iter().enumerate() {
+                    if let Some(record) = decoded_inner_instruction(
+                        group.index as usize,
+                        inner_index,
+                        ix,
+                        account_keys,
+                    ) {
+                        instructions.push(record);
+                    }
+                }
+            }
+        }
+    }
+
+    instructions
+}
+
+#[allow(clippy::too_many_arguments)]
+fn decoded_instruction(
+    id: String,
+    outer_instruction_index: usize,
+    inner_instruction_index: Option<usize>,
+    invocation_kind: &str,
+    program_id: String,
+    account_indexes: Vec<u8>,
+    accounts: Vec<String>,
+    raw_data_base58: String,
+    discriminator: Option<String>,
+) -> DecodedInstruction {
+    let semantic_decode =
+        semantic_decode(&program_id, &raw_data_base58, &accounts, &account_indexes);
+    DecodedInstruction {
+        id,
+        outer_instruction_index,
+        inner_instruction_index,
+        invocation_kind: invocation_kind.to_string(),
+        program_label: program_label(&program_id).to_string(),
+        program_id,
+        accounts,
+        account_indexes,
+        raw_data_base58,
+        discriminator,
+        semantic_decode,
+    }
+}
+
+fn decoded_inner_instruction(
+    outer_index: usize,
+    inner_index: usize,
+    instruction: &UiInstruction,
+    account_keys: &[String],
+) -> Option<DecodedInstruction> {
+    match instruction {
+        UiInstruction::Compiled(ix) => {
+            let program_id = account_keys.get(ix.program_id_index as usize)?.clone();
+            let accounts = ix
+                .accounts
+                .iter()
+                .filter_map(|idx| account_keys.get(*idx as usize).cloned())
+                .collect::<Vec<_>>();
+            let data = bs58::decode(&ix.data).into_vec().ok();
+            Some(decoded_instruction(
+                format!("inner_{outer_index}_{inner_index}"),
+                outer_index,
+                Some(inner_index),
+                "inner",
+                program_id,
+                ix.accounts.clone(),
+                accounts,
+                ix.data.clone(),
+                data.and_then(|data| instruction_discriminator(&data)),
+            ))
+        }
+        UiInstruction::Parsed(UiParsedInstruction::PartiallyDecoded(ix)) => {
+            let data = bs58::decode(&ix.data).into_vec().ok();
+            Some(decoded_instruction(
+                format!("inner_{outer_index}_{inner_index}"),
+                outer_index,
+                Some(inner_index),
+                "inner",
+                ix.program_id.clone(),
+                ix.accounts
+                    .iter()
+                    .filter_map(|account| account_keys.iter().position(|key| key == account))
+                    .filter_map(|idx| u8::try_from(idx).ok())
+                    .collect(),
+                ix.accounts.clone(),
+                ix.data.clone(),
+                data.and_then(|data| instruction_discriminator(&data)),
+            ))
+        }
+        UiInstruction::Parsed(UiParsedInstruction::Parsed(ix)) => Some(decoded_instruction(
+            format!("inner_{outer_index}_{inner_index}"),
+            outer_index,
+            Some(inner_index),
+            "inner",
+            ix.program_id.clone(),
+            Vec::new(),
+            Vec::new(),
+            String::new(),
+            None,
+        )),
+    }
+}
+
+fn semantic_decode(
+    program_id: &str,
+    raw_data_base58: &str,
+    accounts: &[String],
+    account_indexes: &[u8],
+) -> Option<InstructionSemanticDecode> {
+    let protocol = match program_id {
+        RAYDIUM_CPMM_PROGRAM_ID | RAYDIUM_CPMM_LEGACY_PROGRAM_ID => "raydium_cpmm",
+        RAYDIUM_CLMM_PROGRAM_ID => "raydium_clmm",
+        RAYDIUM_AMM_V4_PROGRAM_ID | RAYDIUM_AMM_V4_LEGACY_PROGRAM_ID => "raydium_amm_v4",
+        RAYDIUM_LAUNCHLAB_PROGRAM_ID => "raydium_launchlab",
+        _ => return None,
+    };
+    let discriminator = bs58::decode(raw_data_base58)
+        .into_vec()
+        .ok()
+        .and_then(|data| instruction_discriminator(&data))
+        .unwrap_or_else(|| "unknown".to_string());
+    Some(InstructionSemanticDecode {
+        protocol: protocol.to_string(),
+        instruction_name: format!("unknown_{protocol}_instruction"),
+        source: "program_id_and_discriminator_observed".to_string(),
+        confidence: "unproven".to_string(),
+        arguments: vec![super::types::DecodedArgument {
+            name: "discriminator".to_string(),
+            value: discriminator,
+        }],
+        accounts: accounts
+            .iter()
+            .zip(account_indexes.iter())
+            .map(|(pubkey, index)| super::types::DecodedAccountRole {
+                role: "unclassified".to_string(),
+                pubkey: pubkey.clone(),
+                account_index: Some(*index as usize),
+                source: "exact_role_decoder_not_loaded".to_string(),
+                confidence: "unproven".to_string(),
+            })
+            .collect(),
+        remaining_accounts: Vec::new(),
+    })
+}
+
+fn build_resource_usage(
+    compute_units_consumed: Option<u64>,
+    compute_budget: &ComputeBudgetInfo,
+    metadata: &TransactionMetadata,
+    account_infos: &[Option<Account>],
+) -> ResourceUsage {
+    let observed_account_data_bytes = account_infos
+        .iter()
+        .filter_map(|account| account.as_ref())
+        .map(|account| account.data.len() as u64)
+        .sum::<u64>();
+    ResourceUsage {
+        execution_compute: Some(ExecutionComputeUsage {
+            consumed: compute_units_consumed,
+            consumed_exact: compute_units_consumed.map(|value| value.to_string()),
+            limit: compute_budget.compute_unit_limit,
+            limit_exact: compute_budget.compute_unit_limit_exact.clone(),
+            price_micro_lamports: compute_budget.compute_unit_price_micro_lamports,
+            price_micro_lamports_exact: compute_budget
+                .compute_unit_price_micro_lamports_exact
+                .clone(),
+        }),
+        loaded_account_data: Some(LoadedAccountDataUsage {
+            limit: compute_budget.loaded_accounts_data_size_limit,
+            limit_exact: compute_budget.loaded_accounts_data_size_limit_exact.clone(),
+            observed_account_data_bytes: Some(observed_account_data_bytes),
+            observed_account_data_bytes_exact: Some(observed_account_data_bytes.to_string()),
+        }),
+        transaction_size: Some(TransactionSizeUsage {
+            serialized_size_bytes: metadata.transaction_size_bytes,
+            serialized_size_bytes_exact: metadata.transaction_size_bytes_exact.clone(),
+            uses_address_lookup_tables: metadata.uses_address_lookup_tables,
+            note: if metadata.uses_address_lookup_tables {
+                "Address lookup tables reduce serialized account-address footprint; they do not reduce execution compute.".to_string()
+            } else {
+                "No address lookup tables were observed in the transaction message.".to_string()
+            },
+        }),
+    }
 }
 
 fn fetch_account_infos(

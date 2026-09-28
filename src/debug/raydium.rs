@@ -8,7 +8,7 @@
 use crate::failures::{
     program_label, RAYDIUM_AMM_V4_LEGACY_PROGRAM_ID, RAYDIUM_AMM_V4_PROGRAM_ID,
     RAYDIUM_CLMM_PROGRAM_ID, RAYDIUM_CPMM_LEGACY_PROGRAM_ID, RAYDIUM_CPMM_PROGRAM_ID,
-    RAYDIUM_LAUNCHLAB_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID,
+    RAYDIUM_LAUNCHLAB_PROGRAM_ID,
 };
 
 use super::types::{InstructionDebugInfo, RaydiumPhase, RaydiumProduct, RaydiumProductDebug};
@@ -21,7 +21,7 @@ pub(crate) fn classify_raydium_product(
 ) -> Option<RaydiumProductDebug> {
     let matched_program_ids: Vec<String> = program_ids
         .iter()
-        .filter(|id| is_raydium_or_token_program(id))
+        .filter(|id| is_raydium_program(id))
         .cloned()
         .collect();
     if matched_program_ids.is_empty() {
@@ -65,8 +65,6 @@ fn product_from_programs(program_ids: &[String]) -> RaydiumProduct {
         &[RAYDIUM_AMM_V4_PROGRAM_ID, RAYDIUM_AMM_V4_LEGACY_PROGRAM_ID],
     ) {
         RaydiumProduct::AmmV4
-    } else if has_program(program_ids, &[SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
-        RaydiumProduct::TokenProgram
     } else {
         RaydiumProduct::Unknown
     }
@@ -78,7 +76,7 @@ fn has_program(program_ids: &[String], candidates: &[&str]) -> bool {
         .any(|id| candidates.iter().any(|candidate| id == candidate))
 }
 
-pub(crate) fn is_raydium_or_token_program(program_id: &str) -> bool {
+pub(crate) fn is_raydium_program(program_id: &str) -> bool {
     matches!(
         program_id,
         RAYDIUM_AMM_V4_PROGRAM_ID
@@ -87,8 +85,6 @@ pub(crate) fn is_raydium_or_token_program(program_id: &str) -> bool {
             | RAYDIUM_CPMM_PROGRAM_ID
             | RAYDIUM_CPMM_LEGACY_PROGRAM_ID
             | RAYDIUM_LAUNCHLAB_PROGRAM_ID
-            | SPL_TOKEN_PROGRAM_ID
-            | TOKEN_2022_PROGRAM_ID
     )
 }
 

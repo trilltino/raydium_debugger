@@ -11,6 +11,31 @@ export interface DebugResponse {
   formatted_text: string;
 }
 
+export interface DiagnosticResponse {
+  observation: ObservationStatus;
+  diagnosis: Diagnosis;
+  transaction: TransactionDebugInfo | null;
+  formatted_text: string;
+}
+
+export interface ObservationStatus {
+  status: string;
+  cluster: string | null;
+  providers_queried: string[];
+  evidence: string[];
+  hypotheses: string[];
+}
+
+export interface Diagnosis {
+  title: string;
+  explanation: string;
+  primary_action: string;
+  evidence: string[];
+  confidence: string;
+  category: string;
+  copy_markdown: string;
+}
+
 export interface ProviderStatus {
   name: string;
   triton: {
@@ -116,6 +141,8 @@ export interface TransactionDebugInfo {
   outer_instructions: InstructionDebugInfo[];
   failing_instruction: InstructionDebugInfo | null;
   cpi_tree: CpiFrame[];
+  decoded_instructions: DecodedInstruction[];
+  execution_tree: ExecutionNode[];
   accounts: AccountEvidence[];
   rent_evidence: RentEvidence[];
   logs: string[];
@@ -125,11 +152,15 @@ export interface TransactionDebugInfo {
   fee_paid: number;
   fee_paid_exact: string;
   program_ids: string[];
+  program_context: TransactionProgramContext;
   rpc: RpcDebugInfo;
   provider: ProviderDebugInfo;
   raydium_product: RaydiumProductDebug | null;
   raydium_context: RaydiumContext | null;
   freshness: FreshnessInfo;
+  compute_budget: ComputeBudgetInfo;
+  compute_attribution: ComputeAttribution[];
+  resource_usage: ResourceUsage;
   experience: ExperienceSummary;
   failure: StandardizedFailure | null;
   root_cause: RootCause;
@@ -139,6 +170,8 @@ export interface TransactionDebugInfo {
 export interface TransactionStatusSummary {
   landed: boolean;
   finalized: boolean;
+  confirmation_status?: string | null;
+  finalized_known?: boolean;
   err: string | null;
 }
 
@@ -174,6 +207,73 @@ export interface InstructionDebugInfo {
   data_base58: string;
   discriminator: string | null;
   error: string | null;
+}
+
+export interface TransactionProgramContext {
+  invoked_programs: ProgramInvocationSummary[];
+  token_programs: string[];
+  system_programs: string[];
+  raydium_programs: string[];
+}
+
+export interface ProgramInvocationSummary {
+  program_id: string;
+  program_label: string;
+}
+
+export interface DecodedInstruction {
+  id: string;
+  outer_instruction_index: number;
+  inner_instruction_index: number | null;
+  invocation_kind: string;
+  program_id: string;
+  program_label: string;
+  accounts: string[];
+  account_indexes: number[];
+  raw_data_base58: string;
+  discriminator: string | null;
+  semantic_decode: InstructionSemanticDecode | null;
+}
+
+export interface InstructionSemanticDecode {
+  protocol: string;
+  instruction_name: string;
+  source: string;
+  confidence: string;
+  arguments: DecodedArgument[];
+  accounts: DecodedAccountRole[];
+  remaining_accounts: string[];
+}
+
+export interface DecodedArgument {
+  name: string;
+  value: string;
+}
+
+export interface DecodedAccountRole {
+  role: string;
+  pubkey: string;
+  account_index: number | null;
+  source: string;
+  confidence: string;
+}
+
+export interface ExecutionNode {
+  id: string;
+  parent_id: string | null;
+  depth: number;
+  outer_instruction_index: number | null;
+  inner_instruction_index: number | null;
+  decoded_instruction_id: string | null;
+  program_id: string;
+  program_label: string;
+  status: string;
+  failed: boolean;
+  log_start: number;
+  log_end: number;
+  logs: string[];
+  token_instruction: TokenInstructionDetails | null;
+  compute: ComputeAttribution | null;
 }
 
 export interface InstructionAccountMeta {
@@ -278,6 +378,64 @@ export interface FreshnessInfo {
   note: string;
 }
 
+export interface ComputeBudgetInfo {
+  compute_unit_limit: number | null;
+  compute_unit_limit_exact: string | null;
+  compute_unit_price_micro_lamports: number | null;
+  compute_unit_price_micro_lamports_exact: string | null;
+  loaded_accounts_data_size_limit: number | null;
+  loaded_accounts_data_size_limit_exact: string | null;
+  heap_frame_bytes: number | null;
+  heap_frame_bytes_exact: string | null;
+  deprecated_request_units: DeprecatedRequestUnits | null;
+}
+
+export interface DeprecatedRequestUnits {
+  units: number;
+  units_exact: string;
+  additional_fee_lamports: number;
+  additional_fee_lamports_exact: string;
+}
+
+export interface ComputeAttribution {
+  program_id: string;
+  program_label: string;
+  consumed: number;
+  consumed_exact: string;
+  limit: number;
+  limit_exact: string;
+  source_log: string;
+}
+
+export interface ResourceUsage {
+  execution_compute: ExecutionComputeUsage | null;
+  loaded_account_data: LoadedAccountDataUsage | null;
+  transaction_size: TransactionSizeUsage | null;
+}
+
+export interface ExecutionComputeUsage {
+  consumed: number | null;
+  consumed_exact: string | null;
+  limit: number | null;
+  limit_exact: string | null;
+  price_micro_lamports: number | null;
+  price_micro_lamports_exact: string | null;
+}
+
+export interface LoadedAccountDataUsage {
+  limit: number | null;
+  limit_exact: string | null;
+  observed_account_data_bytes: number | null;
+  observed_account_data_bytes_exact: string | null;
+}
+
+export interface TransactionSizeUsage {
+  serialized_size_bytes: number | null;
+  serialized_size_bytes_exact: string | null;
+  uses_address_lookup_tables: boolean;
+  note: string;
+}
+
 export interface RaydiumProductDebug {
   product: string;
   phase: string | null;
@@ -288,6 +446,7 @@ export interface RaydiumProductDebug {
 export interface RaydiumContext {
   product: string | null;
   phase: string | null;
+  decoded_instructions: DecodedInstruction[];
   instruction_roles: RaydiumInstructionRole[];
   account_roles: RaydiumAccountRole[];
   token_movements: TokenMovement[];

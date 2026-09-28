@@ -7,7 +7,8 @@ use axum::{
     Json,
 };
 use raydium_debugger::{
-    redact_url, run_ai_request, run_debug_request_blocking, AiAskRequest, DebugRequest,
+    redact_url, run_ai_request, run_debug_request_blocking, run_diagnostic_request_blocking,
+    AiAskRequest, DebugRequest,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -317,6 +318,54 @@ pub async fn debug(
             StatusCode::INTERNAL_SERVER_ERROR,
             "debug_failed",
             format!("debug worker failed: {error}"),
+        ),
+    }
+}
+
+/// Runs the v2 diagnosis path that can represent both landed and non-observed signatures.
+pub async fn diagnose(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<DebugRequest>,
+) -> impl IntoResponse {
+    if let Some(response) = validate_api_token(&state, &headers) {
+        return response;
+    }
+    if request
+        .rpc_url
+        .as_deref()
+        .is_some_and(|url| !url.trim().is_empty())
+    {
+        return error_kind_response(
+            StatusCode::BAD_REQUEST,
+            "rpc_override_disabled",
+            "RPC overrides are disabled; this app always uses the configured Triton endpoint for the selected cluster",
+        );
+    }
+
+    let mut request = request;
+    request.rpc_url = None;
+    if request.no_fallback {
+        request.no_fallback = false;
+    }
+
+    let Ok(_permit) = state.debug_limit.clone().try_acquire_owned() else {
+        return error_kind_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            "busy",
+            "too many debug requests are already running",
+        );
+    };
+
+    let result =
+        tokio::task::spawn_blocking(move || run_diagnostic_request_blocking(request)).await;
+    match result {
+        Ok(Ok(response)) => (StatusCode::OK, Json(json!(response))).into_response(),
+        Ok(Err(error)) => error_response(StatusCode::BAD_REQUEST, error),
+        Err(error) => error_kind_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "diagnose_failed",
+            format!("diagnosis worker failed: {error}"),
         ),
     }
 }

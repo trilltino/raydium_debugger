@@ -6,6 +6,7 @@ import type {
   CreateIntegratorRequest,
   DebugRequest,
   DebugResponse,
+  DiagnosticResponse,
   IntegratorRecord,
   ProviderStatus,
   SaveSignatureRequest,
@@ -100,6 +101,35 @@ export async function debugTransaction(request: DebugRequest): Promise<DebugResp
     return invokeCommand<DebugResponse>('debug_transaction_cmd', { request });
   }
   return postJson<DebugResponse>('/api/debug', request);
+}
+
+export async function diagnoseTransaction(request: DebugRequest): Promise<DiagnosticResponse> {
+  if (isTauri()) {
+    const legacy = await invokeCommand<DebugResponse>('debug_transaction_cmd', { request });
+    return {
+      observation: {
+        status: 'landed',
+        cluster: legacy.info.provider.cluster,
+        providers_queried: [legacy.info.provider.rpc_endpoint_redacted].filter(Boolean),
+        evidence: [`Transaction was fetched at slot ${legacy.info.slot_exact}.`],
+        hypotheses: [],
+      },
+      diagnosis: {
+        title: legacy.info.failure?.plain_title ?? legacy.info.experience.headline,
+        explanation: legacy.info.failure?.plain_explanation ?? legacy.info.experience.message,
+        primary_action: legacy.info.failure?.primary_action ?? legacy.info.experience.next_step,
+        evidence: legacy.info.failure?.evidence_summary.length
+          ? legacy.info.failure.evidence_summary
+          : legacy.info.root_cause.evidence,
+        confidence: legacy.info.failure?.confidence ?? 'medium',
+        category: legacy.info.failure?.category ?? legacy.info.root_cause.category,
+        copy_markdown: legacy.formatted_text,
+      },
+      transaction: legacy.info,
+      formatted_text: legacy.formatted_text,
+    };
+  }
+  return postJson<DiagnosticResponse>('/api/diagnose', request);
 }
 
 export async function listIntegrators(): Promise<IntegratorRecord[]> {

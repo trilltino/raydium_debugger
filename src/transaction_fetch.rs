@@ -150,7 +150,10 @@ pub fn fetch_transaction_v1_aware(
             .map(parsed_account_keys)
             .unwrap_or_default()
     };
-    let transaction_size_bytes = None;
+    let transaction_size_bytes = decoded
+        .as_ref()
+        .and_then(|tx| bincode::serialize(tx).ok())
+        .map(|bytes| bytes.len());
 
     Ok(FetchedSolanaTransaction {
         signature: *signature,
