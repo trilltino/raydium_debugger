@@ -1,0 +1,14 @@
+{
+  "name": "raydium-debugger-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
+    "web:typecheck": "npm --prefix web run typecheck",
+    "server": "cargo run -p raydium-debugger-server",
+    "tauri:dev": "npm --prefix web run tauri:dev",
+    "tauri:build": "npm --prefix web run tauri:build"
+  }
+}

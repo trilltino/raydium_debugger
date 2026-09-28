@@ -1,0 +1,23 @@
+[[case]]
+name = "devnet_success"
+signature = "ACaZMGWN11hw6ynimi1yCywu5iXmhwk3NWzE7LiE16i1eQo7tECKiSHuSx5iZXqMEt8q2Ryr9zevQEvVeGQR8Ua"
+cluster = "devnet"
+success = true
+required_text = ["Transaction completed successfully"]
+
+[[case]]
+name = "mainnet_unknown_custom"
+signature = "3BnYrz7ZeKwpn4HMWQUome32MsCYp9LjtsmgzDLzQkt1MqY3QuKDxbKeTb1sKeYpWtjKaeHxn3PNQRQ87bof2ezg"
+cluster = "mainnet"
+success = false
+required_code = "0x1780"
+required_text = ["program-specific custom error"]
+
+[[case]]
+name = "token_2022_insufficient_funds"
+signature = "532QKhJzWdU61jBirNRTLqMZ6dZsHGBNuW6BEMVSagAq5EHPESoC6uzSWoLSSBpmtEC26XuTCN6yhUbPcwY1f2sy"
+cluster = "mainnet"
+success = false
+program_label = "Token-2022"
+required_code = "0x1"
+required_text = ["Token-2022 account needs more funds"]

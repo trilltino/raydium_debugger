@@ -1,0 +1,10 @@
+/target/
+/web/node_modules/
+/web/dist/
+/web/test-results/
+/src-tauri/target/
+/.raydium-debugger/
+*.log
+.env
+.env.*
+!.env.example

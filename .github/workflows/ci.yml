@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.96.1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
+      - name: Rust format
+        run: cargo fmt --all -- --check
+      - name: Rust check
+        run: cargo check --workspace --all-targets --locked
+      - name: Rust clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Rust tests
+        run: cargo test --workspace --all-features --locked
+      - name: Raydium registry drift
+        run: cargo run -p xtask -- raydium-registry check
+      - name: Rust docs
+        run: cargo doc --workspace --no-deps --locked
+      - name: Dependency policy
+        run: cargo deny check
+      - name: Frontend install
+        run: npm --prefix web ci
+      - name: Frontend audit
+        run: npm --prefix web audit --omit=dev
+      - name: Frontend typecheck
+        run: npm --prefix web run typecheck
+      - name: Frontend build
+        run: npm --prefix web run build
+      - name: Browser smoke tests
+        run: npm --prefix web run test:e2e

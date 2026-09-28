@@ -1,0 +1,793 @@
+{
+  "generated_at": "2026-09-27T13:27:52.442596800+00:00",
+  "sources": [
+    {
+      "product": "raydium_clmm",
+      "url": "https://raw.githubusercontent.com/raydium-io/raydium-idl/master/raydium_clmm/raydium_clmm.json",
+      "error_count": 51,
+      "errors": [
+        {
+          "code": 6000,
+          "name": "NotApproved",
+          "message": "Not approved"
+        },
+        {
+          "code": 6001,
+          "name": "InvalidUpdateConfigFlag",
+          "message": "invalid update amm config flag"
+        },
+        {
+          "code": 6002,
+          "name": "AccountLack",
+          "message": "Account lack"
+        },
+        {
+          "code": 6003,
+          "name": "ClosePositionErr",
+          "message": "Remove liquidity, collect fees owed and reward then you can close position account"
+        },
+        {
+          "code": 6004,
+          "name": "InvalidTickIndex",
+          "message": "Tick out of range"
+        },
+        {
+          "code": 6005,
+          "name": "TickInvalidOrder",
+          "message": "The lower tick must be below the upper tick"
+        },
+        {
+          "code": 6006,
+          "name": "TickLowerOverflow",
+          "message": "The tick must be greater, or equal to the minimum tick(-443636)"
+        },
+        {
+          "code": 6007,
+          "name": "TickUpperOverflow",
+          "message": "The tick must be lesser than, or equal to the maximum tick(443636)"
+        },
+        {
+          "code": 6008,
+          "name": "TickAndSpacingNotMatch",
+          "message": "tick % tick_spacing must be zero"
+        },
+        {
+          "code": 6009,
+          "name": "InvalidTickArray",
+          "message": "Invalid tick array account"
+        },
+        {
+          "code": 6010,
+          "name": "InvalidTickArrayBoundary",
+          "message": "Invalid tick array boundary"
+        },
+        {
+          "code": 6011,
+          "name": "SqrtPriceLimitOverflow",
+          "message": "Square root price limit overflow"
+        },
+        {
+          "code": 6012,
+          "name": "SqrtPriceX64",
+          "message": "sqrt_price_x64 out of range"
+        },
+        {
+          "code": 6013,
+          "name": "LiquiditySubValueErr",
+          "message": "Liquidity sub delta L must be smaller than before"
+        },
+        {
+          "code": 6014,
+          "name": "LiquidityAddValueErr",
+          "message": "Liquidity add delta L must be greater, or equal to before"
+        },
+        {
+          "code": 6015,
+          "name": "ForbidBothZeroForSupplyLiquidity",
+          "message": "Both token amount must not be zero while supply liquidity"
+        },
+        {
+          "code": 6016,
+          "name": "LiquidityInsufficient",
+          "message": "Liquidity insufficient"
+        },
+        {
+          "code": 6017,
+          "name": "PriceSlippageCheck",
+          "message": "Price slippage check"
+        },
+        {
+          "code": 6018,
+          "name": "TooLittleOutputReceived",
+          "message": "Too little output received"
+        },
+        {
+          "code": 6019,
+          "name": "TooMuchInputPaid",
+          "message": "Too much input paid"
+        },
+        {
+          "code": 6020,
+          "name": "ZeroAmountSpecified",
+          "message": "Swap special amount can not be zero"
+        },
+        {
+          "code": 6021,
+          "name": "InvalidInputPoolVault",
+          "message": "Input pool vault is invalid"
+        },
+        {
+          "code": 6022,
+          "name": "TooSmallInputOrOutputAmount",
+          "message": "Swap input or output amount is too small"
+        },
+        {
+          "code": 6023,
+          "name": "NotEnoughTickArrayAccount",
+          "message": "Not enough tick array account"
+        },
+        {
+          "code": 6024,
+          "name": "InvalidFirstTickArrayAccount",
+          "message": "Invalid first tick array account"
+        },
+        {
+          "code": 6025,
+          "name": "InvalidRewardIndex",
+          "message": "Invalid reward index"
+        },
+        {
+          "code": 6026,
+          "name": "FullRewardInfo",
+          "message": "The init reward token reach to the max"
+        },
+        {
+          "code": 6027,
+          "name": "RewardTokenAlreadyInUse",
+          "message": "The init reward token already in use"
+        },
+        {
+          "code": 6028,
+          "name": "ExceptRewardMint",
+          "message": "The reward tokens must contain one of pool vault mint except the last reward"
+        },
+        {
+          "code": 6029,
+          "name": "InvalidRewardInitParam",
+          "message": "Invalid reward init param"
+        },
+        {
+          "code": 6030,
+          "name": "InvalidRewardInputAccountNumber",
+          "message": "Invalid collect reward input account number"
+        },
+        {
+          "code": 6031,
+          "name": "InvalidRewardPeriod",
+          "message": "Invalid reward period"
+        },
+        {
+          "code": 6032,
+          "name": "NotApproveUpdateRewardEmissions",
+          "message": "Modification of emissions is allowed within 72 hours from the end of the previous cycle"
+        },
+        {
+          "code": 6033,
+          "name": "UnInitializedRewardInfo",
+          "message": "uninitialized reward info"
+        },
+        {
+          "code": 6034,
+          "name": "NotSupportMint",
+          "message": "Not support token_2022 mint extension"
+        },
+        {
+          "code": 6035,
+          "name": "MissingTickArrayBitmapExtensionAccount",
+          "message": "Missing tickarray bitmap extension account"
+        },
+        {
+          "code": 6036,
+          "name": "InsufficientLiquidityForDirection",
+          "message": "Insufficient liquidity for this direction"
+        },
+        {
+          "code": 6037,
+          "name": "MaxTokenOverflow",
+          "message": "Max token overflow"
+        },
+        {
+          "code": 6038,
+          "name": "CalculateOverflow",
+          "message": "Calculate overflow"
+        },
+        {
+          "code": 6039,
+          "name": "TransferFeeCalculateNotMatch",
+          "message": "TransferFee calculate not match"
+        },
+        {
+          "code": 6040,
+          "name": "OrderAlreadyFilled",
+          "message": "Order already fully filled, cannot modify"
+        },
+        {
+          "code": 6041,
+          "name": "InvalidOrderPhase",
+          "message": "Invalid order phase"
+        },
+        {
+          "code": 6042,
+          "name": "InvalidLimitOrderAmount",
+          "message": "Invalid limit order amount"
+        },
+        {
+          "code": 6043,
+          "name": "OrderPhaseSaturated",
+          "message": "Tick order phase saturated"
+        },
+        {
+          "code": 6044,
+          "name": "InvalidDynamicFeeConfigParams",
+          "message": "Invalid dynamic fee config params"
+        },
+        {
+          "code": 6045,
+          "name": "InvalidFeeOn",
+          "message": "Invalid fee on which token (must be 0, 1, or 2)"
+        },
+        {
+          "code": 6046,
+          "name": "ZeroSqrtPrice",
+          "message": "sqrt_price_x64 must be greater than 0"
+        },
+        {
+          "code": 6047,
+          "name": "ZeroLiquidity",
+          "message": "liquidity must be greater than 0"
+        },
+        {
+          "code": 6048,
+          "name": "MissingBaseFlag",
+          "message": "base_flag is required when liquidity is zero"
+        },
+        {
+          "code": 6049,
+          "name": "MissingMintAccount",
+          "message": "Mint account is required but not provided"
+        },
+        {
+          "code": 6050,
+          "name": "MissingTokenProgram2022",
+          "message": "Token-2022 program is required but not provided"
+        }
+      ]
+    },
+    {
+      "product": "raydium_cpmm",
+      "url": "https://raw.githubusercontent.com/raydium-io/raydium-idl/master/raydium_cpmm/raydium_cp_swap.json",
+      "error_count": 15,
+      "errors": [
+        {
+          "code": 6000,
+          "name": "NotApproved",
+          "message": "Not approved"
+        },
+        {
+          "code": 6001,
+          "name": "InvalidOwner",
+          "message": "Input account owner is not the program address"
+        },
+        {
+          "code": 6002,
+          "name": "EmptySupply",
+          "message": "Input token account empty"
+        },
+        {
+          "code": 6003,
+          "name": "InvalidInput",
+          "message": "InvalidInput"
+        },
+        {
+          "code": 6004,
+          "name": "IncorrectLpMint",
+          "message": "Address of the provided lp token mint is incorrect"
+        },
+        {
+          "code": 6005,
+          "name": "ExceededSlippage",
+          "message": "Exceeds desired slippage limit"
+        },
+        {
+          "code": 6006,
+          "name": "ZeroTradingTokens",
+          "message": "Given pool token amount results in zero trading tokens"
+        },
+        {
+          "code": 6007,
+          "name": "NotSupportMint",
+          "message": "Not support token_2022 mint extension"
+        },
+        {
+          "code": 6008,
+          "name": "InvalidVault",
+          "message": "invaild vault"
+        },
+        {
+          "code": 6009,
+          "name": "InitLpAmountTooLess",
+          "message": "Init lp amount is too less(Because 100 amount lp will be locked)"
+        },
+        {
+          "code": 6010,
+          "name": "TransferFeeCalculateNotMatch",
+          "message": "TransferFee calculate not match"
+        },
+        {
+          "code": 6011,
+          "name": "MathOverflow",
+          "message": "Math overflow"
+        },
+        {
+          "code": 6012,
+          "name": "InsufficientVault",
+          "message": "Insufficient vault"
+        },
+        {
+          "code": 6013,
+          "name": "InvalidFeeModel",
+          "message": "Invalid fee model"
+        },
+        {
+          "code": 6014,
+          "name": "NoFeeCollect",
+          "message": "Fee is zero"
+        }
+      ]
+    },
+    {
+      "product": "raydium_launchpad",
+      "url": "https://raw.githubusercontent.com/raydium-io/raydium-idl/master/raydium_launchpad/raydium_launchpad.json",
+      "error_count": 24,
+      "errors": [
+        {
+          "code": 6000,
+          "name": "NotApproved",
+          "message": "Not approved"
+        },
+        {
+          "code": 6001,
+          "name": "InvalidOwner",
+          "message": "Input account owner is not the program address"
+        },
+        {
+          "code": 6002,
+          "name": "InvalidInput",
+          "message": "InvalidInput"
+        },
+        {
+          "code": 6003,
+          "name": "InputNotMatchCurveConfig",
+          "message": "The input params are not match with curve type in config"
+        },
+        {
+          "code": 6004,
+          "name": "ExceededSlippage",
+          "message": "Exceeds desired slippage limit"
+        },
+        {
+          "code": 6005,
+          "name": "PoolFunding",
+          "message": "Pool funding"
+        },
+        {
+          "code": 6006,
+          "name": "PoolMigrated",
+          "message": "Pool migrated"
+        },
+        {
+          "code": 6007,
+          "name": "MigrateTypeNotMatch",
+          "message": "Migrate type not match"
+        },
+        {
+          "code": 6008,
+          "name": "MathOverflow",
+          "message": "Math overflow"
+        },
+        {
+          "code": 6009,
+          "name": "NoAssetsToCollect",
+          "message": "No assets to collect"
+        },
+        {
+          "code": 6010,
+          "name": "VestingRatioTooHigh",
+          "message": "Vesting ratio too high"
+        },
+        {
+          "code": 6011,
+          "name": "VestingSettingEnded",
+          "message": "Vesting setting ended"
+        },
+        {
+          "code": 6012,
+          "name": "VestingNotStarted",
+          "message": "Vesting not started"
+        },
+        {
+          "code": 6013,
+          "name": "NoVestingSchedule",
+          "message": "No vesting schedule"
+        },
+        {
+          "code": 6014,
+          "name": "InvalidPlatformInfo",
+          "message": "The platform info input is invalid"
+        },
+        {
+          "code": 6015,
+          "name": "PoolNotMigrated",
+          "message": "Pool not migrated"
+        },
+        {
+          "code": 6016,
+          "name": "InvalidCpSwapConfig",
+          "message": "The input cp swap config account is invalid"
+        },
+        {
+          "code": 6017,
+          "name": "NoSupportExtension",
+          "message": "No support extension"
+        },
+        {
+          "code": 6018,
+          "name": "NotEnoughRemainingAccounts",
+          "message": "Not enough remaining accounts"
+        },
+        {
+          "code": 6019,
+          "name": "TransferFeeCalculateNotMatch",
+          "message": "TransferFee calculate not match"
+        },
+        {
+          "code": 6020,
+          "name": "CurveParamIsNotExist",
+          "message": "Curve param is not exist"
+        },
+        {
+          "code": 6021,
+          "name": "InvalidTotalLockedAmount",
+          "message": "Total locked amount must great or equal to the platform vesting share amount"
+        },
+        {
+          "code": 6022,
+          "name": "PlatformGlobalAccessDenied",
+          "message": "Platform is not authorized to use this global config"
+        },
+        {
+          "code": 6023,
+          "name": "InvalidPlatformGlobalAccess",
+          "message": "Invalid platform-global access account"
+        }
+      ]
+    },
+    {
+      "product": "raydium_amm_v4",
+      "url": "https://raw.githubusercontent.com/raydium-io/raydium-amm/master/program/src/error.rs",
+      "error_count": 62,
+      "errors": [
+        {
+          "code": 0,
+          "name": "AlreadyInUse",
+          "message": "Already in use."
+        },
+        {
+          "code": 1,
+          "name": "InvalidProgramAddress",
+          "message": "Invalid program address."
+        },
+        {
+          "code": 2,
+          "name": "ExpectedMint",
+          "message": "Expected mint."
+        },
+        {
+          "code": 3,
+          "name": "ExpectedAccount",
+          "message": "Expected account."
+        },
+        {
+          "code": 4,
+          "name": "InvalidCoinVault",
+          "message": "Invalid coin vault."
+        },
+        {
+          "code": 5,
+          "name": "InvalidPCVault",
+          "message": "Invalid PC vault."
+        },
+        {
+          "code": 6,
+          "name": "InvalidTokenLP",
+          "message": "Invalid token LP."
+        },
+        {
+          "code": 7,
+          "name": "InvalidDestTokenCoin",
+          "message": "Invalid destination token coin."
+        },
+        {
+          "code": 8,
+          "name": "InvalidDestTokenPC",
+          "message": "Invalid destination token PC."
+        },
+        {
+          "code": 9,
+          "name": "InvalidPoolMint",
+          "message": "Invalid pool mint."
+        },
+        {
+          "code": 10,
+          "name": "InvalidOpenOrders",
+          "message": "Invalid open orders."
+        },
+        {
+          "code": 11,
+          "name": "InvalidMarket",
+          "message": "Invalid market."
+        },
+        {
+          "code": 12,
+          "name": "InvalidMarketProgram",
+          "message": "Invalid market program."
+        },
+        {
+          "code": 13,
+          "name": "InvalidTargetOrders",
+          "message": "Invalid target orders."
+        },
+        {
+          "code": 14,
+          "name": "AccountNeedWriteable",
+          "message": "Account must be writable."
+        },
+        {
+          "code": 15,
+          "name": "AccountNeedReadOnly",
+          "message": "Account must be read-only."
+        },
+        {
+          "code": 16,
+          "name": "InvalidCoinMint",
+          "message": "Invalid coin mint."
+        },
+        {
+          "code": 17,
+          "name": "InvalidPCMint",
+          "message": "Invalid PC mint."
+        },
+        {
+          "code": 18,
+          "name": "InvalidOwner",
+          "message": "Invalid owner."
+        },
+        {
+          "code": 19,
+          "name": "InvalidSupply",
+          "message": "Invalid supply."
+        },
+        {
+          "code": 20,
+          "name": "InvalidDelegate",
+          "message": "Invalid delegate."
+        },
+        {
+          "code": 21,
+          "name": "InvalidSignAccount",
+          "message": "Invalid sign account."
+        },
+        {
+          "code": 22,
+          "name": "InvalidStatus",
+          "message": "Invalid status."
+        },
+        {
+          "code": 23,
+          "name": "InvalidInstruction",
+          "message": "Invalid instruction."
+        },
+        {
+          "code": 24,
+          "name": "WrongAccountsNumber",
+          "message": "Wrong accounts number."
+        },
+        {
+          "code": 25,
+          "name": "InvalidTargetAccountOwner",
+          "message": "Invalid target account owner."
+        },
+        {
+          "code": 26,
+          "name": "InvalidTargetOwner",
+          "message": "Invalid target owner."
+        },
+        {
+          "code": 27,
+          "name": "InvalidAmmAccountOwner",
+          "message": "Invalid AMM account owner."
+        },
+        {
+          "code": 28,
+          "name": "InvalidParamsSet",
+          "message": "Invalid parameter set."
+        },
+        {
+          "code": 29,
+          "name": "InvalidInput",
+          "message": "Invalid input."
+        },
+        {
+          "code": 30,
+          "name": "ExceededSlippage",
+          "message": "Exceeded desired slippage limit."
+        },
+        {
+          "code": 31,
+          "name": "CalculationExRateFailure",
+          "message": "Calculation exchange rate failed."
+        },
+        {
+          "code": 32,
+          "name": "CheckedSubOverflow",
+          "message": "Checked subtraction overflow."
+        },
+        {
+          "code": 33,
+          "name": "CheckedAddOverflow",
+          "message": "Checked addition overflow."
+        },
+        {
+          "code": 34,
+          "name": "CheckedMulOverflow",
+          "message": "Checked multiplication overflow."
+        },
+        {
+          "code": 35,
+          "name": "CheckedDivOverflow",
+          "message": "Checked division overflow."
+        },
+        {
+          "code": 36,
+          "name": "CheckedEmptyFunds",
+          "message": "Empty funds."
+        },
+        {
+          "code": 37,
+          "name": "CalcPnlError",
+          "message": "P&L calculation error."
+        },
+        {
+          "code": 38,
+          "name": "InvalidSplTokenProgram",
+          "message": "Invalid SPL token program."
+        },
+        {
+          "code": 39,
+          "name": "TakePnlError",
+          "message": "Take P&L error."
+        },
+        {
+          "code": 40,
+          "name": "InsufficientFunds",
+          "message": "Insufficient funds."
+        },
+        {
+          "code": 41,
+          "name": "ConversionFailure",
+          "message": "Conversion to u64 failed with overflow or underflow."
+        },
+        {
+          "code": 42,
+          "name": "InvalidUserToken",
+          "message": "User token input does not match AMM."
+        },
+        {
+          "code": 43,
+          "name": "InvalidSrmMint",
+          "message": "Invalid SRM mint."
+        },
+        {
+          "code": 44,
+          "name": "InvalidSrmToken",
+          "message": "Invalid SRM token."
+        },
+        {
+          "code": 45,
+          "name": "TooManyOpenOrders",
+          "message": "Too many open orders."
+        },
+        {
+          "code": 46,
+          "name": "OrderAtSlotIsPlaced",
+          "message": "Order at slot is already placed."
+        },
+        {
+          "code": 47,
+          "name": "InvalidSysProgramAddress",
+          "message": "Invalid system program address."
+        },
+        {
+          "code": 48,
+          "name": "InvalidFee",
+          "message": "Invalid fee."
+        },
+        {
+          "code": 49,
+          "name": "RepeatCreateAmm",
+          "message": "Repeat AMM creation for the market."
+        },
+        {
+          "code": 50,
+          "name": "NotAllowZeroLP",
+          "message": "Zero LP not allowed."
+        },
+        {
+          "code": 51,
+          "name": "InvalidCloseAuthority",
+          "message": "Token account has a close authority."
+        },
+        {
+          "code": 52,
+          "name": "InvalidFreezeAuthority",
+          "message": "Pool token mint has a freeze authority."
+        },
+        {
+          "code": 53,
+          "name": "InvalidReferPCMint",
+          "message": "Invalid referrer PC mint."
+        },
+        {
+          "code": 54,
+          "name": "InvalidConfigAccount",
+          "message": "Invalid configuration account."
+        },
+        {
+          "code": 55,
+          "name": "RepeatCreateConfigAccount",
+          "message": "Repeat configuration account creation."
+        },
+        {
+          "code": 56,
+          "name": "MarketLotSizeIsTooLarge",
+          "message": "Market lot size is too large."
+        },
+        {
+          "code": 57,
+          "name": "InitLpAmountTooLess",
+          "message": "Initial LP amount is too low."
+        },
+        {
+          "code": 58,
+          "name": "UnknownAmmError",
+          "message": "Unknown AMM error."
+        },
+        {
+          "code": 59,
+          "name": "NotAllowed",
+          "message": "Not allowed due to same mint."
+        },
+        {
+          "code": 60,
+          "name": "LamportsCalculateError",
+          "message": "Lamports calculate error."
+        },
+        {
+          "code": 61,
+          "name": "ProgramError::Custom(e as u32)",
+          "message": ""
+        }
+      ]
+    }
+  ]
+}
