@@ -181,6 +181,7 @@ pub struct DecodedInstruction {
     pub account_indexes: Vec<u8>,
     pub raw_data_base58: String,
     pub discriminator: Option<String>,
+    pub stack_height: Option<u32>,
     pub semantic_decode: Option<InstructionSemanticDecode>,
 }
 

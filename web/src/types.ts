@@ -232,6 +232,7 @@ export interface DecodedInstruction {
   account_indexes: number[];
   raw_data_base58: string;
   discriminator: string | null;
+  stack_height: number | null;
   semantic_decode: InstructionSemanticDecode | null;
 }
 

@@ -10,6 +10,8 @@ export default defineConfig({
     env: {
       ...process.env,
       RAYDIUM_DEBUGGER_CASEBOOK_PATH: 'target/playwright-casebooks.sqlite',
+      TRITON_DEVNET_RPC_URL: process.env.TRITON_DEVNET_RPC_URL ?? 'http://127.0.0.1:9',
+      TRITON_MAINNET_RPC_URL: process.env.TRITON_MAINNET_RPC_URL ?? 'http://127.0.0.1:9',
     },
   },
   use: {

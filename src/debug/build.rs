@@ -337,6 +337,7 @@ fn build_decoded_instructions(
                 accounts,
                 raw_data_base58,
                 instruction_discriminator(&ix.data),
+                None,
             ));
         }
     } else if let Some(message) = parsed_message {
@@ -354,6 +355,7 @@ fn build_decoded_instructions(
                     .into_vec()
                     .ok()
                     .and_then(|data| instruction_discriminator(&data)),
+                None,
             ));
         }
     }
@@ -389,6 +391,7 @@ fn decoded_instruction(
     accounts: Vec<String>,
     raw_data_base58: String,
     discriminator: Option<String>,
+    stack_height: Option<u32>,
 ) -> DecodedInstruction {
     let semantic_decode =
         semantic_decode(&program_id, &raw_data_base58, &accounts, &account_indexes);
@@ -403,6 +406,7 @@ fn decoded_instruction(
         account_indexes,
         raw_data_base58,
         discriminator,
+        stack_height,
         semantic_decode,
     }
 }
@@ -432,6 +436,7 @@ fn decoded_inner_instruction(
                 accounts,
                 ix.data.clone(),
                 data.and_then(|data| instruction_discriminator(&data)),
+                ix.stack_height,
             ))
         }
         UiInstruction::Parsed(UiParsedInstruction::PartiallyDecoded(ix)) => {
@@ -450,6 +455,7 @@ fn decoded_inner_instruction(
                 ix.accounts.clone(),
                 ix.data.clone(),
                 data.and_then(|data| instruction_discriminator(&data)),
+                ix.stack_height,
             ))
         }
         UiInstruction::Parsed(UiParsedInstruction::Parsed(ix)) => Some(decoded_instruction(
@@ -462,6 +468,7 @@ fn decoded_inner_instruction(
             Vec::new(),
             String::new(),
             None,
+            ix.stack_height,
         )),
     }
 }

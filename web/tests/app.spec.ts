@@ -2,6 +2,10 @@ import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
+const diagnosticFixture = JSON.parse(
+  fs.readFileSync(path.join(process.cwd(), 'tests', 'fixtures', 'diagnostic-response.json'), 'utf8'),
+);
+
 function liveCase(name: string) {
   const raw = fs.readFileSync(path.join(process.cwd(), '..', 'tests', 'live_signatures.toml'), 'utf8');
   const block = raw
@@ -22,7 +26,7 @@ test('serves the real app shell and health endpoint', async ({ page, request }) 
   expect(health.ok()).toBeTruthy();
 
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Transaction Debugger' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Raydium Debugger' })).toBeVisible();
   await expect(page.getByText('Raydium tooling')).toHaveCount(0);
   await expect(page.getByText('Deterministic failure evidence for Raydium and Solana integrations.')).toHaveCount(0);
   await expect(page.getByText('Live')).toHaveCount(0);
@@ -35,6 +39,66 @@ test('serves the real app shell and health endpoint', async ({ page, request }) 
 
   const favicon = await request.get('/favicon.ico');
   expect(favicon.ok()).toBeTruthy();
+});
+
+test('renders mocked v2 diagnosis, execution tree, and compute evidence', async ({ page }) => {
+  await page.route('**/api/diagnose', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(diagnosticFixture),
+    });
+  });
+
+  await page.goto('/');
+  await page.getByPlaceholder('Paste a Solana transaction signature').fill(diagnosticFixture.transaction.signature);
+  await page.getByRole('button', { name: /debug/i }).click();
+
+  await expect(page.getByRole('heading', { name: 'Diagnosis', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /copy diagnosis/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Raydium CPMM swap failed in Token-2022 CPI' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Execution Tree' }).click();
+  await expect(page.getByRole('heading', { name: 'Execution Tree' })).toBeVisible();
+  await expect(page.getByText('transferChecked')).toBeVisible();
+  await expect(page.getByText(/Compute: 9,000 \/ 200,000 CU/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Compute + Fees' }).click();
+  await expect(page.getByText('Current fetched account-data bytes')).toBeVisible();
+  await expect(page.getByText('Serialized transaction size', { exact: true })).toBeVisible();
+});
+
+test('renders non-observed diagnosis as a result, not an error', async ({ page }) => {
+  await page.route('**/api/diagnose', async (route) => {
+    const response = {
+      observation: {
+        status: 'not_observed_on_selected_provider',
+        cluster: 'mainnet',
+        providers_queried: ['configured Triton mainnet endpoint'],
+        evidence: ['transaction was not found on the selected cluster/RPC endpoint'],
+        hypotheses: ['The transaction was never submitted.'],
+      },
+      diagnosis: {
+        title: 'Transaction was not observed on the selected provider',
+        explanation: 'The debugger could not fetch a landed transaction for this signature.',
+        primary_action: 'Verify the cluster and retry with submission telemetry.',
+        evidence: ['transaction was not found on the selected cluster/RPC endpoint'],
+        confidence: 'medium',
+        category: 'not_observed',
+        copy_markdown: '### Transaction was not observed on the selected provider',
+      },
+      transaction: null,
+      formatted_text: '',
+    };
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(response) });
+  });
+
+  await page.goto('/');
+  await page.getByPlaceholder('Paste a Solana transaction signature').fill('5U6mZgQmFakeButRouted111111111111111111111111111111111111111111111111111111111111111');
+  await page.getByRole('button', { name: /debug/i }).click();
+
+  await expect(page.getByRole('heading', { name: 'Diagnosis', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Transaction was not observed on the selected provider' })).toBeVisible();
+  await expect(page.locator('.alert')).toHaveCount(0);
 });
 
 test('shows structured backend errors without mocked data', async ({ page }) => {
@@ -58,7 +122,7 @@ test('indexes signatures by integrator for dropdown reuse', async ({ page }) => 
   await expect(page.getByLabel('Saved signature select')).toContainText('Saved transaction');
 
   await page.getByPlaceholder('Paste a Solana transaction signature').fill('');
-  const savedOption = page.getByLabel('Saved signature select').locator('option', { hasText: 'Saved transaction (devnet)' });
+  const savedOption = page.getByLabel('Saved signature select').locator('option', { hasText: signature });
   const savedValue = await savedOption.getAttribute('value');
   expect(savedValue).toBeTruthy();
   await page.getByLabel('Saved signature select').selectOption(savedValue!);

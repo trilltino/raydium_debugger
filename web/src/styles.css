@@ -420,6 +420,11 @@ pre {
   align-items: start;
 }
 
+.content--single {
+  max-width: 820px;
+  margin: 0 auto;
+}
+
 .content,
 .side,
 .stack {
@@ -465,6 +470,45 @@ pre {
   align-items: center;
   gap: 0.55rem;
   margin-bottom: 0.82rem;
+}
+
+.diagnosis-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: start;
+}
+
+.diagnosis-hero h2 {
+  margin: 0.2rem 0 0.45rem;
+  color: var(--text);
+  font-size: 1.2rem;
+}
+
+.diagnosis-hero p {
+  margin: 0 0 0.55rem;
+  color: var(--muted);
+}
+
+.diagnosis-hero span {
+  color: var(--dim);
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.diagnosis-hero button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #07101f;
+  background: var(--cyan);
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0.58rem 0.75rem;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .decode-callout {

@@ -38,8 +38,10 @@ import { dateTime, exactNumber, lamports, shortAddress, signed } from './format'
 import type {
   AccountEvidence,
   CasebookRecord,
-  CpiFrame,
   DebugResponse,
+  DecodedInstruction,
+  DiagnosticResponse,
+  ExecutionNode,
   InstructionDebugInfo,
   IntegratorRecord,
   ProviderStatus,
@@ -48,14 +50,14 @@ import type {
 } from './types';
 import './styles.css';
 
-type Tab = 'summary' | 'instructions' | 'accounts' | 'logs' | 'raw';
+type Tab = 'summary' | 'instructions' | 'compute' | 'accounts' | 'logs' | 'raw';
 
 function App() {
   const [signature, setSignature] = React.useState('');
   const [cluster, setCluster] = React.useState<'devnet' | 'mainnet'>('devnet');
   const [providers, setProviders] = React.useState<ProviderStatus | null>(null);
   const [activeTab, setActiveTab] = React.useState<Tab>('summary');
-  const [response, setResponse] = React.useState<DebugResponse | null>(null);
+  const [response, setResponse] = React.useState<DiagnosticResponse | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [question, setQuestion] = React.useState('');
@@ -111,7 +113,7 @@ function App() {
       .then((records) => {
         if (cancelled) return;
         setCasebooks(records);
-        setSelectedCasebookId((current) => current || records[0]?.id || '');
+        setSelectedCasebookId(records[0]?.id || '');
       })
       .catch((err) => {
         if (!cancelled) {
@@ -139,16 +141,7 @@ function App() {
         cluster,
         data_mode: 'auto',
       });
-      if (!diagnosis.transaction) {
-        setResponse(null);
-        setError(diagnosis.diagnosis.copy_markdown || diagnosis.diagnosis.explanation);
-        return;
-      }
-      const next = {
-        info: diagnosis.transaction,
-        formatted_text: diagnosis.formatted_text,
-      };
-      setResponse(next);
+      setResponse(diagnosis);
       setActiveTab('summary');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -159,12 +152,12 @@ function App() {
 
   async function runAsk(event: React.FormEvent) {
     event.preventDefault();
-    if (!response || !question.trim()) return;
+    if (!response?.transaction || !question.trim()) return;
     setAsking(true);
     setError(null);
     try {
       const answer = await askAi({
-        info: response.info,
+        info: response.transaction,
         question: question.trim(),
         model: aiModel.trim() || null,
       });
@@ -193,20 +186,28 @@ function App() {
 
   async function saveCurrentSignature() {
     if (!selectedIntegratorId || !signature.trim()) return;
+    const currentResponse = response;
     setSavingSignature(true);
     setError(null);
     try {
       const request = {
         signature: signature.trim(),
         cluster,
-        label: signatureLabel(response),
-        reason: signatureReason(response),
-        outcome: response ? (response.info.success ? 'success' : 'failed') : null,
-        product: response?.info.raydium_context?.product ?? response?.info.raydium_product?.product ?? null,
-        failure_category: response?.info.failure?.category ?? null,
-        failure_code: response?.info.failure?.code_hex ?? null,
-        tags: signatureTags(response),
-        pinned: response ? !response.info.success : false,
+        label: signatureLabel(currentResponse),
+        reason: signatureReason(currentResponse),
+        outcome: currentResponse?.transaction
+          ? currentResponse.transaction.success
+            ? 'success'
+            : 'failed'
+          : currentResponse?.observation.status ?? null,
+        product:
+          currentResponse?.transaction?.raydium_context?.product ??
+          currentResponse?.transaction?.raydium_product?.product ??
+          null,
+        failure_category: currentResponse?.transaction?.failure?.category ?? currentResponse?.diagnosis.category ?? null,
+        failure_code: currentResponse?.transaction?.failure?.code_hex ?? null,
+        tags: signatureTags(currentResponse),
+        pinned: currentResponse?.transaction ? !currentResponse.transaction.success : Boolean(currentResponse),
       };
       const updated = selectedCasebookId
         ? await saveCasebookSignature(selectedCasebookId, request)
@@ -251,7 +252,7 @@ function App() {
     setActiveTab('summary');
   }
 
-  const info = response?.info ?? null;
+  const info = response?.transaction ?? null;
   const debug = response;
   const selectedIntegrator = integrators.find((record) => record.id === selectedIntegratorId) ?? null;
   const selectedCasebook = casebooks.find((record) => record.id === selectedCasebookId) ?? null;
@@ -332,24 +333,32 @@ function App() {
           </div>
         )}
 
-        {!info || !debug ? (
+        {!debug ? (
           <EmptyState />
         ) : (
           <>
             <StatusStrip response={debug} />
+            {!info ? (
+              <section className="content content--single">
+                <DiagnosisPanel response={debug} />
+                <ObservationPanel response={debug} />
+              </section>
+            ) : (
             <div className="layout">
               <section className="content">
                 <Tabs active={activeTab} onChange={setActiveTab} />
-                {activeTab === 'summary' && <Summary info={info} onAsk={runAsk} question={question} setQuestion={setQuestion} aiModel={aiModel} setAiModel={setAiModel} asking={asking} answer={aiAnswer} />}
-                {activeTab === 'instructions' && <Instructions instructions={info.outer_instructions} cpi={info.cpi_tree} />}
+                {activeTab === 'summary' && <Summary response={debug} info={info} onAsk={runAsk} question={question} setQuestion={setQuestion} aiModel={aiModel} setAiModel={setAiModel} asking={asking} answer={aiAnswer} />}
+                {activeTab === 'instructions' && <Instructions instructions={info.outer_instructions} executionTree={info.execution_tree} decoded={info.decoded_instructions} />}
+                {activeTab === 'compute' && <ComputePanel info={info} />}
                 {activeTab === 'accounts' && <Accounts accounts={info.accounts} />}
                 {activeTab === 'logs' && <Logs logs={info.logs} />}
-                {activeTab === 'raw' && <Raw text={debug.formatted_text} json={info} />}
+                {activeTab === 'raw' && <Raw text={debug.formatted_text} json={debug} />}
               </section>
               <aside className="side">
                 <Recommendations info={info} />
               </aside>
             </div>
+            )}
           </>
         )}
       </main>
@@ -529,24 +538,25 @@ function savedSignatureLabel(saved: SavedSignature): string {
   return `${label}${saved.signature} (${saved.cluster})${reason}`;
 }
 
-function signatureLabel(response: DebugResponse | null): string {
+function signatureLabel(response: DiagnosticResponse | null): string {
   if (!response) return 'Saved transaction';
-  return response.info.failure?.plain_title ?? response.info.failure?.title ?? response.info.experience.headline;
+  return response.transaction?.failure?.plain_title ?? response.transaction?.failure?.title ?? response.transaction?.experience.headline ?? response.diagnosis.title;
 }
 
-function signatureReason(response: DebugResponse | null): string | null {
+function signatureReason(response: DiagnosticResponse | null): string | null {
   if (!response) return null;
-  return response.info.failure?.primary_action ?? response.info.experience.next_step;
+  return response.transaction?.failure?.primary_action ?? response.transaction?.experience.next_step ?? response.diagnosis.primary_action;
 }
 
-function signatureTags(response: DebugResponse | null): string[] {
+function signatureTags(response: DiagnosticResponse | null): string[] {
   if (!response) return [];
+  const info = response.transaction;
   return [
-    response.info.provider.cluster,
-    response.info.raydium_context?.product ?? response.info.raydium_product?.product,
-    response.info.failure?.category,
-    response.info.failure?.missing_artifact ? 'needs-idl' : null,
-    response.info.success ? 'success' : 'failed',
+    info?.provider.cluster ?? response.observation.cluster,
+    info?.raydium_context?.product ?? info?.raydium_product?.product,
+    info?.failure?.category ?? response.diagnosis.category,
+    info?.failure?.missing_artifact ? 'needs-idl' : null,
+    info ? (info.success ? 'success' : 'failed') : response.observation.status,
   ].filter((tag): tag is string => Boolean(tag));
 }
 
@@ -595,16 +605,16 @@ function EmptyState() {
   );
 }
 
-function StatusStrip({ response }: { response: DebugResponse }) {
-  const { info } = response;
-  const failure = info.failure;
-  const tone = experienceTone(info.experience.tone);
+function StatusStrip({ response }: { response: DiagnosticResponse }) {
+  const info = response.transaction;
+  const failure = info?.failure;
+  const tone = info ? experienceTone(info.experience.tone) : 'warn';
   return (
     <section className="stats">
-      <Stat label="Status" value={info.experience.status_label} tone={tone} hint={info.experience.headline} icon={info.success ? <CheckCircle2 /> : <XCircle />} />
-      <Stat label="Diagnosis" value={failure?.name ?? info.root_cause.category} hint={failure?.title ?? info.experience.message} tone={failure ? 'warn' : tone} icon={<ShieldAlert />} />
-      <Stat label="Slot" value={exactNumber(info.slot_exact ?? info.slot)} hint={info.freshness.note} icon={<Gauge />} />
-      <Stat label="Compute" value={exactNumber(info.compute_units_consumed_exact ?? info.compute_units_consumed)} hint={`Fee ${lamports(info.fee_paid_exact ?? info.fee_paid)}`} icon={<Cpu />} />
+      <Stat label="Status" value={info?.experience.status_label ?? response.observation.status} tone={tone} hint={response.diagnosis.title} icon={info?.success ? <CheckCircle2 /> : <XCircle />} />
+      <Stat label="Diagnosis" value={failure?.name ?? response.diagnosis.category} hint={response.diagnosis.explanation} tone={failure ? 'warn' : tone} icon={<ShieldAlert />} />
+      <Stat label="Slot" value={info ? exactNumber(info.slot_exact ?? info.slot) : '-'} hint={info?.freshness.note ?? response.observation.cluster ?? undefined} icon={<Gauge />} />
+      <Stat label="Compute" value={info ? exactNumber(info.compute_units_consumed_exact ?? info.compute_units_consumed) : '-'} hint={info ? `Fee ${lamports(info.fee_paid_exact ?? info.fee_paid)}` : 'Not landed'} icon={<Cpu />} />
     </section>
   );
 }
@@ -630,7 +640,8 @@ function Stat({ label, value, hint, tone = 'default', icon }: { label: string; v
 function Tabs({ active, onChange }: { active: Tab; onChange: (tab: Tab) => void }) {
   const tabs: Array<[Tab, string]> = [
     ['summary', 'Summary'],
-    ['instructions', 'Instructions'],
+    ['instructions', 'Execution Tree'],
+    ['compute', 'Compute + Fees'],
     ['accounts', 'Accounts'],
     ['logs', 'Logs'],
     ['raw', 'Raw'],
@@ -647,6 +658,7 @@ function Tabs({ active, onChange }: { active: Tab; onChange: (tab: Tab) => void 
 }
 
 function Summary(props: {
+  response: DiagnosticResponse;
   info: DebugResponse['info'];
   onAsk: (event: React.FormEvent) => void;
   question: string;
@@ -663,6 +675,8 @@ function Summary(props: {
   const primaryAction = failure?.primary_action ?? info.experience.next_step;
   return (
     <div className="stack">
+      <DiagnosisPanel response={props.response} />
+      <ObservationPanel response={props.response} />
       <section className={`result result--${info.experience.tone}`}>
         <div className="result__icon">
           {info.success ? <CheckCircle2 size={22} /> : <XCircle size={22} />}
@@ -720,6 +734,63 @@ function Summary(props: {
         {props.answer && <pre className="answer">{props.answer}</pre>}
       </Panel>
     </div>
+  );
+}
+
+function DiagnosisPanel({ response }: { response: DiagnosticResponse }) {
+  const diagnosis = response.diagnosis;
+  return (
+    <Panel title="Diagnosis" icon={<ShieldAlert />}>
+      <div className="diagnosis-hero">
+        <div>
+          <span>{diagnosis.category} · {diagnosis.confidence}</span>
+          <h2>{diagnosis.title}</h2>
+          <p>{diagnosis.explanation}</p>
+          <strong>Primary action: {diagnosis.primary_action}</strong>
+        </div>
+        <button type="button" onClick={() => navigator.clipboard.writeText(diagnosis.copy_markdown)}>
+          <Copy size={14} />
+          Copy diagnosis
+        </button>
+      </div>
+      {diagnosis.evidence.length > 0 && (
+        <ul className="list">
+          {diagnosis.evidence.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+function ObservationPanel({ response }: { response: DiagnosticResponse }) {
+  const observation = response.observation;
+  return (
+    <Panel title="Observation" icon={<Database />}>
+      <div className="chips">
+        <Chip label="Status" value={observation.status} />
+        <Chip label="Cluster" value={observation.cluster ?? '-'} />
+        <Chip label="Providers" value={`${observation.providers_queried.length}`} />
+      </div>
+      {observation.evidence.length > 0 && (
+        <ul className="list">
+          {observation.evidence.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      )}
+      {observation.hypotheses.length > 0 && (
+        <>
+          <p className="muted">Possible causes, not proven from the signature alone:</p>
+          <ul className="list warn">
+            {observation.hypotheses.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Panel>
   );
 }
 
@@ -946,6 +1017,44 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ComputePanel({ info }: { info: DebugResponse['info'] }) {
+  const compute = info.resource_usage.execution_compute;
+  const accountData = info.resource_usage.loaded_account_data;
+  const size = info.resource_usage.transaction_size;
+  return (
+    <div className="stack">
+      <Panel title="Compute + Fees" icon={<Cpu />}>
+        <div className="success-grid">
+          <Metric label="CU consumed" value={exactNumber(compute?.consumed_exact ?? info.compute_units_consumed_exact ?? info.compute_units_consumed)} />
+          <Metric label="CU limit" value={exactNumber(compute?.limit_exact ?? info.compute_budget.compute_unit_limit_exact ?? info.compute_budget.compute_unit_limit)} />
+          <Metric label="CU price" value={exactNumber(compute?.price_micro_lamports_exact ?? info.compute_budget.compute_unit_price_micro_lamports_exact ?? info.compute_budget.compute_unit_price_micro_lamports)} />
+          <Metric label="Fee" value={lamports(info.fee_paid_exact ?? info.fee_paid)} />
+          <Metric label="Heap frame" value={exactNumber(info.compute_budget.heap_frame_bytes_exact ?? info.compute_budget.heap_frame_bytes)} />
+          <Metric label="Loaded data limit" value={exactNumber(accountData?.limit_exact ?? info.compute_budget.loaded_accounts_data_size_limit_exact ?? info.compute_budget.loaded_accounts_data_size_limit)} />
+          <Metric label="Current fetched account-data bytes" value={exactNumber(accountData?.observed_account_data_bytes_exact ?? accountData?.observed_account_data_bytes)} />
+          <Metric label="Serialized transaction size" value={exactNumber(size?.serialized_size_bytes_exact ?? size?.serialized_size_bytes)} />
+        </div>
+        {size?.note && <p className="muted">{size.note}</p>}
+      </Panel>
+      <Panel title="Per-Invocation Compute Evidence" icon={<Gauge />}>
+        {info.compute_attribution.length > 0 ? (
+          <div className="diagnosis-table">
+            {info.compute_attribution.map((item, index) => (
+              <div className="diagnosis-row" key={`${item.program_id}-${index}-${item.consumed_exact}`}>
+                <span>{item.program_label}</span>
+                <span>{exactNumber(item.consumed_exact)} / {exactNumber(item.limit_exact)} CU</span>
+                <code title={item.program_id}>{shortAddress(item.program_id, 6, 6)}</code>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">Runtime compute logs were not available.</p>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
 function CopyLine({ label, value }: { label: string; value: string }) {
   return (
     <div className="copy-line">
@@ -992,7 +1101,8 @@ function integratorMessage(info: DebugResponse['info'], failure: StandardizedFai
   ].join('\n');
 }
 
-function Instructions({ instructions, cpi }: { instructions: InstructionDebugInfo[]; cpi: CpiFrame[] }) {
+function Instructions({ instructions, executionTree, decoded }: { instructions: InstructionDebugInfo[]; executionTree: ExecutionNode[]; decoded: DecodedInstruction[] }) {
+  const decodedById = new Map(decoded.map((instruction) => [instruction.id, instruction]));
   return (
     <div className="stack">
       <Panel title="Outer Instructions" icon={<Layers3 />}>
@@ -1011,10 +1121,10 @@ function Instructions({ instructions, cpi }: { instructions: InstructionDebugInf
           ))}
         </div>
       </Panel>
-      <Panel title="CPI Tree" icon={<Terminal />}>
+      <Panel title="Execution Tree" icon={<Terminal />}>
         <div className="frames">
-          {cpi.map((frame, index) => (
-            <Frame frame={frame} key={`${frame.message}-${index}`} />
+          {executionTree.map((node) => (
+            <ExecutionFrame node={node} decoded={node.decoded_instruction_id ? decodedById.get(node.decoded_instruction_id) ?? null : null} key={node.id} />
           ))}
         </div>
       </Panel>
@@ -1022,16 +1132,26 @@ function Instructions({ instructions, cpi }: { instructions: InstructionDebugInf
   );
 }
 
-function Frame({ frame }: { frame: CpiFrame }) {
+function ExecutionFrame({ node, decoded }: { node: ExecutionNode; decoded: DecodedInstruction | null }) {
   return (
-    <div className={`frame frame--${frame.status}`} style={{ paddingLeft: `${frame.depth * 18 + 10}px` }}>
-      <span>{frame.status}</span>
-      <code>{frame.program_label}</code>
-      <small>{frame.message}</small>
-      {frame.token_instruction && (
+    <div className={`frame frame--${node.failed ? 'failed' : node.status}`} style={{ paddingLeft: `${node.depth * 18 + 10}px` }}>
+      <span>{node.failed ? 'failed' : node.status}</span>
+      <code>{node.program_label}</code>
+      <small>
+        {decoded?.semantic_decode?.instruction_name ?? decoded?.id ?? node.program_id}
+        {node.outer_instruction_index !== null ? ` · outer #${node.outer_instruction_index}` : ''}
+        {node.inner_instruction_index !== null ? ` · inner #${node.inner_instruction_index}` : ''}
+        {decoded?.stack_height ? ` · stack ${decoded.stack_height}` : ''}
+      </small>
+      {node.compute && (
+        <small>
+          Compute: {exactNumber(node.compute.consumed_exact)} / {exactNumber(node.compute.limit_exact)} CU
+        </small>
+      )}
+      {node.token_instruction && (
         <div className="token-cpi" aria-label="Token instruction parameters">
-          <strong>{tokenInstructionLabel(frame.token_instruction.instruction_type)}</strong>
-          {frame.token_instruction.parameters.map((parameter) => (
+          <strong>{tokenInstructionLabel(node.token_instruction.instruction_type)}</strong>
+          {node.token_instruction.parameters.map((parameter) => (
             <span key={`${parameter.name}-${parameter.value}`}>
               {parameter.name}: <code title={parameter.value}>{formatTokenParam(parameter.value)}</code>
             </span>

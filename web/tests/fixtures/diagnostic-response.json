@@ -1,0 +1,199 @@
+{
+  "observation": {
+    "status": "landed",
+    "cluster": "mainnet",
+    "providers_queried": ["triton-mainnet-redacted"],
+    "evidence": ["Transaction was fetched at slot 123456789.", "Confirmation evidence: confirmed."],
+    "hypotheses": []
+  },
+  "diagnosis": {
+    "title": "Raydium CPMM swap failed in Token-2022 CPI",
+    "explanation": "The transaction reached Raydium CPMM, then a Token-2022 transfer CPI failed.",
+    "primary_action": "Inspect the user source token account and Token-2022 extension requirements.",
+    "evidence": ["Raydium instruction decoded as swap_base_input.", "Deepest failed CPI is Token-2022 transferChecked."],
+    "confidence": "high",
+    "category": "token_program_failure",
+    "copy_markdown": "### Raydium CPMM swap failed in Token-2022 CPI\n\nPrimary action: Inspect the user source token account."
+  },
+  "transaction": {
+    "signature": "5U6mZgQmFixture111111111111111111111111111111111111111111111111111111111111111",
+    "slot": 123456789,
+    "slot_exact": "123456789",
+    "timestamp": 1730000000,
+    "status": {
+      "landed": true,
+      "finalized": false,
+      "confirmation_status": "confirmed",
+      "finalized_known": false,
+      "err": "InstructionError(0, Custom(1))"
+    },
+    "success": false,
+    "error": "InstructionError(0, Custom(1))",
+    "metadata": {
+      "payer": "Payer111111111111111111111111111111111111111",
+      "recent_blockhash": "Blockhash11111111111111111111111111111111111",
+      "required_signatures": 1,
+      "readonly_signed_accounts": 0,
+      "readonly_unsigned_accounts": 6,
+      "transaction_version": "v0",
+      "max_supported_transaction_version": 1,
+      "rpc_v1_fetch_supported": true,
+      "transaction_size_bytes": 512,
+      "transaction_size_bytes_exact": "512",
+      "uses_address_lookup_tables": true,
+      "static_account_count": 12,
+      "resolved_account_count": 20,
+      "loaded_writable_account_count": 4,
+      "loaded_readonly_account_count": 4,
+      "v1_compute_unit_limit": 200000,
+      "v1_compute_unit_limit_exact": "200000",
+      "v1_loaded_accounts_data_size_limit": null,
+      "v1_loaded_accounts_data_size_limit_exact": null,
+      "fetch_warnings": []
+    },
+    "outer_instructions": [
+      {
+        "index": 0,
+        "program_id": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+        "program_label": "Raydium CPMM",
+        "account_indexes": [0, 1, 2],
+        "accounts": [],
+        "data_base58": "",
+        "discriminator": "8fbe5adac41e33de",
+        "error": "custom program error: 0x1"
+      }
+    ],
+    "failing_instruction": null,
+    "cpi_tree": [],
+    "decoded_instructions": [
+      {
+        "id": "outer_0",
+        "outer_instruction_index": 0,
+        "inner_instruction_index": null,
+        "invocation_kind": "outer",
+        "program_id": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+        "program_label": "Raydium CPMM",
+        "accounts": [],
+        "account_indexes": [],
+        "raw_data_base58": "",
+        "discriminator": "8fbe5adac41e33de",
+        "stack_height": null,
+        "semantic_decode": {
+          "protocol": "raydium_cpmm",
+          "instruction_name": "swap_base_input",
+          "source": "fixture",
+          "confidence": "high",
+          "arguments": [
+            { "name": "amount_in", "value": "100" },
+            { "name": "minimum_amount_out", "value": "95" }
+          ],
+          "accounts": [],
+          "remaining_accounts": []
+        }
+      },
+      {
+        "id": "inner_0_0",
+        "outer_instruction_index": 0,
+        "inner_instruction_index": 0,
+        "invocation_kind": "inner",
+        "program_id": "TokenzQdBNbLqP5VEhdkAS6EPF5rAjmcdE2ioY2WFHL",
+        "program_label": "Token-2022",
+        "accounts": [],
+        "account_indexes": [],
+        "raw_data_base58": "",
+        "discriminator": null,
+        "stack_height": 2,
+        "semantic_decode": null
+      }
+    ],
+    "execution_tree": [
+      {
+        "id": "node_0",
+        "parent_id": null,
+        "depth": 1,
+        "outer_instruction_index": 0,
+        "inner_instruction_index": null,
+        "decoded_instruction_id": "outer_0",
+        "program_id": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+        "program_label": "Raydium CPMM",
+        "status": "failed",
+        "failed": true,
+        "log_start": 0,
+        "log_end": 4,
+        "logs": [],
+        "token_instruction": null,
+        "compute": { "program_id": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C", "program_label": "Raydium CPMM", "consumed": 50000, "consumed_exact": "50000", "limit": 200000, "limit_exact": "200000", "source_log": "Program CPMM consumed 50000 of 200000 compute units" }
+      },
+      {
+        "id": "node_1",
+        "parent_id": "node_0",
+        "depth": 2,
+        "outer_instruction_index": 0,
+        "inner_instruction_index": 0,
+        "decoded_instruction_id": "inner_0_0",
+        "program_id": "TokenzQdBNbLqP5VEhdkAS6EPF5rAjmcdE2ioY2WFHL",
+        "program_label": "Token-2022",
+        "status": "failed",
+        "failed": true,
+        "log_start": 1,
+        "log_end": 3,
+        "logs": [],
+        "token_instruction": {
+          "instruction_type": "transferChecked",
+          "parameters": [
+            { "name": "amount", "value": "100" },
+            { "name": "source", "value": "Source11111111111111111111111111111111111111" }
+          ]
+        },
+        "compute": { "program_id": "TokenzQdBNbLqP5VEhdkAS6EPF5rAjmcdE2ioY2WFHL", "program_label": "Token-2022", "consumed": 9000, "consumed_exact": "9000", "limit": 200000, "limit_exact": "200000", "source_log": "Program Token consumed 9000 of 200000 compute units" }
+      }
+    ],
+    "accounts": [],
+    "rent_evidence": [],
+    "logs": ["Program CPMM invoke [1]", "Program Token-2022 invoke [2]", "Program Token-2022 consumed 9000 of 200000 compute units", "Program Token-2022 failed: custom program error: 0x1", "Program CPMM failed: custom program error: 0x1"],
+    "account_changes": [],
+    "compute_units_consumed": 50000,
+    "compute_units_consumed_exact": "50000",
+    "fee_paid": 5000,
+    "fee_paid_exact": "5000",
+    "program_ids": ["CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C", "TokenzQdBNbLqP5VEhdkAS6EPF5rAjmcdE2ioY2WFHL"],
+    "program_context": { "invoked_programs": [], "token_programs": ["TokenzQdBNbLqP5VEhdkAS6EPF5rAjmcdE2ioY2WFHL"], "system_programs": [], "raydium_programs": ["CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"] },
+    "rpc": { "endpoint": "", "fallback_used": false },
+    "provider": { "cluster": "mainnet", "rpc_endpoint_redacted": "triton-mainnet-redacted", "fallback_endpoint_redacted": null, "warnings": [], "rate_limit": null },
+    "raydium_product": { "product": "cpmm", "phase": null, "matched_program_ids": ["CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"], "evidence": [] },
+    "raydium_context": {
+      "product": "cpmm",
+      "phase": null,
+      "decoded_instructions": [],
+      "instruction_roles": [],
+      "account_roles": [],
+      "token_movements": [],
+      "swap_summary": {
+        "route_kind": "single_transaction",
+        "input_mint": "InputMint11111111111111111111111111111111111",
+        "output_mint": "OutputMint1111111111111111111111111111111111",
+        "input_amount_raw": "100",
+        "output_amount_raw": null,
+        "min_output_raw": "95",
+        "max_input_raw": null,
+        "slippage_result": "Observed: output was below the decoded minimum output threshold.",
+        "transfer_fee_notes": [],
+        "route_leg_status": []
+      },
+      "warnings": []
+    },
+    "freshness": { "execution_slot": 123456789, "current_slot": 123456999, "slot_age": 210, "note": "Execution slot is 210 slots behind the current RPC slot." },
+    "compute_budget": { "compute_unit_limit": 200000, "compute_unit_limit_exact": "200000", "compute_unit_price_micro_lamports": 1000, "compute_unit_price_micro_lamports_exact": "1000", "loaded_accounts_data_size_limit": null, "loaded_accounts_data_size_limit_exact": null, "heap_frame_bytes": null, "heap_frame_bytes_exact": null, "deprecated_request_units": null },
+    "compute_attribution": [{ "program_id": "TokenzQdBNbLqP5VEhdkAS6EPF5rAjmcdE2ioY2WFHL", "program_label": "Token-2022", "consumed": 9000, "consumed_exact": "9000", "limit": 200000, "limit_exact": "200000", "source_log": "Program Token consumed 9000 of 200000 compute units" }],
+    "resource_usage": {
+      "execution_compute": { "consumed": 50000, "consumed_exact": "50000", "limit": 200000, "limit_exact": "200000", "price_micro_lamports": 1000, "price_micro_lamports_exact": "1000" },
+      "loaded_account_data": { "limit": null, "limit_exact": null, "observed_account_data_bytes": 4096, "observed_account_data_bytes_exact": "4096" },
+      "transaction_size": { "serialized_size_bytes": 512, "serialized_size_bytes_exact": "512", "uses_address_lookup_tables": true, "note": "Serialized transaction size calculated from the fetched transaction bytes." }
+    },
+    "experience": { "tone": "danger", "status_label": "Failed", "headline": "Token-2022 account needs more funds", "message": "Token CPI failed.", "next_step": "Inspect the source token account.", "detail_badges": [] },
+    "failure": null,
+    "root_cause": { "category": "token_program_failure", "summary": "Token CPI failed.", "evidence": ["Token-2022 failed."] },
+    "recommended_actions": ["Inspect the source token account."]
+  },
+  "formatted_text": "Fixture formatted report"
+}

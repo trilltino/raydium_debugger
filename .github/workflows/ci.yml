@@ -32,6 +32,8 @@ jobs:
         run: cargo test --workspace --all-features --locked
       - name: Raydium registry validate
         run: cargo run -p xtask -- raydium-registry validate
+      - name: Raydium instruction registry validate
+        run: cargo run -p xtask -- raydium-instructions validate
       - name: Rust docs
         run: cargo doc --workspace --no-deps --locked
       - name: Dependency policy

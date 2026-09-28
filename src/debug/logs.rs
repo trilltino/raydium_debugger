@@ -68,16 +68,26 @@ pub(crate) fn build_execution_tree(
     decoded_instructions: &[DecodedInstruction],
     legacy_frames: &[CpiFrame],
 ) -> Vec<ExecutionNode> {
-    let compute = compute_attribution(logs);
     let mut nodes: Vec<ExecutionNode> = Vec::new();
     let mut stack: Vec<usize> = Vec::new();
     let mut invoke_counts_by_outer: Vec<usize> = Vec::new();
+    let mut inner_cursors_by_outer: Vec<usize> = Vec::new();
 
     for (log_index, line) in logs.iter().enumerate() {
         let Some((program_id, status, depth)) = program_log_event(line) else {
             if let Some(current) = stack.last().copied() {
                 nodes[current].logs.push(line.clone());
                 nodes[current].log_end = log_index;
+            }
+            if let Some(compute) = parse_compute_log(line) {
+                if let Some(node_index) = stack
+                    .iter()
+                    .rev()
+                    .copied()
+                    .find(|idx| nodes[*idx].program_id == compute.program_id)
+                {
+                    nodes[node_index].compute = Some(compute);
+                }
             }
             continue;
         };
@@ -104,9 +114,24 @@ pub(crate) fn build_execution_tree(
                         if invoke_counts_by_outer.len() <= outer {
                             invoke_counts_by_outer.resize(outer + 1, 0);
                         }
-                        let next = invoke_counts_by_outer[outer];
-                        invoke_counts_by_outer[outer] += 1;
-                        Some(next)
+                        if inner_cursors_by_outer.len() <= outer {
+                            inner_cursors_by_outer.resize(outer + 1, 0);
+                        }
+                        let matched = match_decoded_instruction_index(
+                            decoded_instructions,
+                            outer,
+                            inner_cursors_by_outer[outer],
+                            program_id,
+                            depth,
+                        );
+                        if let Some(inner) = matched {
+                            inner_cursors_by_outer[outer] = inner + 1;
+                            Some(inner)
+                        } else {
+                            let next = invoke_counts_by_outer[outer];
+                            invoke_counts_by_outer[outer] += 1;
+                            Some(next)
+                        }
                     }
                 });
                 let decoded_instruction_id = match_decoded_instruction(
@@ -122,7 +147,7 @@ pub(crate) fn build_execution_tree(
                     depth,
                     outer_instruction_index,
                     inner_instruction_index,
-                    decoded_instruction_id,
+                    decoded_instruction_id: decoded_instruction_id.clone(),
                     program_id: program_id.to_string(),
                     program_label: program_label(program_id).to_string(),
                     status: "invoke".to_string(),
@@ -130,11 +155,12 @@ pub(crate) fn build_execution_tree(
                     log_start: log_index,
                     log_end: log_index,
                     logs: vec![line.clone()],
-                    token_instruction: token_instruction_for_legacy_frame(
-                        legacy_frames,
-                        program_id,
-                        depth,
-                    ),
+                    token_instruction: decoded_instruction_id
+                        .as_deref()
+                        .and_then(|id| token_instruction_for_decoded(decoded_instructions, id))
+                        .or_else(|| {
+                            token_instruction_for_legacy_frame(legacy_frames, program_id, depth)
+                        }),
                     compute: None,
                 });
                 stack.push(nodes.len() - 1);
@@ -154,7 +180,6 @@ pub(crate) fn build_execution_tree(
                     nodes[node_index].failed = matches!(status, ProgramLogStatus::Failed);
                     nodes[node_index].logs.push(line.clone());
                     nodes[node_index].log_end = log_index;
-                    nodes[node_index].compute = compute_for_program(&compute, program_id, line);
                     while stack.last().copied().is_some_and(|idx| idx != node_index) {
                         stack.pop();
                     }
@@ -211,6 +236,49 @@ fn match_decoded_instruction(
         .map(|instruction| instruction.id.clone())
 }
 
+fn match_decoded_instruction_index(
+    decoded: &[DecodedInstruction],
+    outer: usize,
+    cursor: usize,
+    program_id: &str,
+    depth: usize,
+) -> Option<usize> {
+    decoded
+        .iter()
+        .filter(|instruction| {
+            instruction.invocation_kind == "inner"
+                && instruction.outer_instruction_index == outer
+                && instruction.program_id == program_id
+                && instruction
+                    .inner_instruction_index
+                    .is_some_and(|inner| inner >= cursor)
+        })
+        .min_by_key(|instruction| {
+            let stack_penalty = match instruction.stack_height {
+                Some(stack_height) if stack_height as usize == depth => 0,
+                Some(_) => 2,
+                None => 1,
+            };
+            (
+                stack_penalty,
+                instruction.inner_instruction_index.unwrap_or(usize::MAX),
+            )
+        })
+        .and_then(|instruction| instruction.inner_instruction_index)
+}
+
+fn token_instruction_for_decoded(
+    decoded: &[DecodedInstruction],
+    id: &str,
+) -> Option<TokenInstructionDetails> {
+    let instruction = decoded.iter().find(|instruction| instruction.id == id)?;
+    if !is_token_program(&instruction.program_id) {
+        return None;
+    }
+    let data = bs58::decode(&instruction.raw_data_base58).into_vec().ok()?;
+    decode_token_instruction_data(&data, &instruction.accounts)
+}
+
 fn token_instruction_for_legacy_frame(
     frames: &[CpiFrame],
     program_id: &str,
@@ -225,18 +293,6 @@ fn token_instruction_for_legacy_frame(
                 && frame.token_instruction.is_some()
         })
         .and_then(|frame| frame.token_instruction.clone())
-}
-
-fn compute_for_program(
-    attribution: &[ComputeAttribution],
-    program_id: &str,
-    closing_log: &str,
-) -> Option<ComputeAttribution> {
-    attribution
-        .iter()
-        .rev()
-        .find(|item| item.program_id == program_id && closing_log.contains(program_id))
-        .cloned()
 }
 
 pub(crate) fn compute_attribution(logs: &[String]) -> Vec<ComputeAttribution> {
@@ -719,5 +775,123 @@ fn launchlab_action(product: Option<&RaydiumProductDebug>) -> Option<&'static st
         _ => Some(
             "For LaunchLab, inspect whether this is initialize, buy, sell, vesting, or graduation, then validate the account list against that path.",
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::debug::types::DecodedInstruction;
+
+    #[test]
+    fn execution_tree_attaches_repeated_token_cpis_by_inner_instruction() {
+        let token_data_a = token_transfer_data(111);
+        let token_data_b = token_transfer_data(222);
+        let decoded = vec![
+            DecodedInstruction {
+                id: "outer_0".to_string(),
+                outer_instruction_index: 0,
+                invocation_kind: "outer".to_string(),
+                program_id: "Aggregator111111111111111111111111111111111".to_string(),
+                program_label: "Aggregator".to_string(),
+                ..DecodedInstruction::default()
+            },
+            token_decoded("inner_0_0", 0, token_data_a, 3),
+            token_decoded("inner_0_1", 1, token_data_b, 3),
+        ];
+        let logs = vec![
+            "Program Aggregator111111111111111111111111111111111 invoke [1]".to_string(),
+            format!("Program {TOKEN_2022_PROGRAM_ID} invoke [3]"),
+            format!("Program {TOKEN_2022_PROGRAM_ID} consumed 1000 of 200000 compute units"),
+            format!("Program {TOKEN_2022_PROGRAM_ID} success"),
+            format!("Program {TOKEN_2022_PROGRAM_ID} invoke [3]"),
+            format!("Program {TOKEN_2022_PROGRAM_ID} consumed 2000 of 200000 compute units"),
+            format!("Program {TOKEN_2022_PROGRAM_ID} failed: custom program error: 0x1"),
+            "Program Aggregator111111111111111111111111111111111 failed: custom program error: 0x1"
+                .to_string(),
+        ];
+
+        let tree = build_execution_tree(&logs, &decoded, &[]);
+        let token_nodes = tree
+            .iter()
+            .filter(|node| node.program_id == TOKEN_2022_PROGRAM_ID)
+            .collect::<Vec<_>>();
+
+        assert_eq!(token_nodes.len(), 2);
+        assert_eq!(
+            token_nodes[0].decoded_instruction_id.as_deref(),
+            Some("inner_0_0")
+        );
+        assert_eq!(
+            token_nodes[0]
+                .token_instruction
+                .as_ref()
+                .and_then(|details| details
+                    .parameters
+                    .iter()
+                    .find(|param| param.name == "amount"))
+                .map(|param| param.value.as_str()),
+            Some("111")
+        );
+        assert_eq!(
+            token_nodes[0]
+                .compute
+                .as_ref()
+                .map(|compute| compute.consumed),
+            Some(1000)
+        );
+        assert_eq!(
+            token_nodes[1].decoded_instruction_id.as_deref(),
+            Some("inner_0_1")
+        );
+        assert_eq!(
+            token_nodes[1]
+                .token_instruction
+                .as_ref()
+                .and_then(|details| details
+                    .parameters
+                    .iter()
+                    .find(|param| param.name == "amount"))
+                .map(|param| param.value.as_str()),
+            Some("222")
+        );
+        assert_eq!(
+            token_nodes[1]
+                .compute
+                .as_ref()
+                .map(|compute| compute.consumed),
+            Some(2000)
+        );
+        assert!(token_nodes[1].failed);
+    }
+
+    fn token_decoded(
+        id: &str,
+        inner: usize,
+        data: Vec<u8>,
+        stack_height: u32,
+    ) -> DecodedInstruction {
+        DecodedInstruction {
+            id: id.to_string(),
+            outer_instruction_index: 0,
+            inner_instruction_index: Some(inner),
+            invocation_kind: "inner".to_string(),
+            program_id: TOKEN_2022_PROGRAM_ID.to_string(),
+            program_label: "Token-2022".to_string(),
+            accounts: vec![
+                format!("source_{inner}"),
+                format!("destination_{inner}"),
+                format!("authority_{inner}"),
+            ],
+            raw_data_base58: bs58::encode(data).into_string(),
+            stack_height: Some(stack_height),
+            ..DecodedInstruction::default()
+        }
+    }
+
+    fn token_transfer_data(amount: u64) -> Vec<u8> {
+        let mut data = vec![3];
+        data.extend_from_slice(&amount.to_le_bytes());
+        data
     }
 }

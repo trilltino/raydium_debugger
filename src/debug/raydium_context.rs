@@ -404,7 +404,7 @@ fn slippage_result(
         min_output_raw.and_then(|value| value.parse::<u128>().ok()),
     ) {
         (Some(output), Some(minimum)) if output < minimum => {
-            "Output was below minimum; the quote moved before execution or the transaction used stale pool state.".to_string()
+            "Observed: output was below the decoded minimum output threshold. Possible causes include market/pool state changing after the quote, an already-stale quote, or another execution difference affecting realized output.".to_string()
         }
         (Some(output), Some(minimum)) => format!(
             "Output satisfied the decoded minimum output check ({output} >= {minimum})."
@@ -474,6 +474,7 @@ mod tests {
             account_indexes: Vec::new(),
             raw_data_base58: String::new(),
             discriminator: None,
+            stack_height: None,
             semantic_decode: Some(InstructionSemanticDecode {
                 protocol: "raydium_cpmm".to_string(),
                 instruction_name: "swap_base_input".to_string(),
