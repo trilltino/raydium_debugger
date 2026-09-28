@@ -1,0 +1,36 @@
+name: raydium-debugger
+
+services:
+  raydium-debugger:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: raydium-debugger
+    restart: unless-stopped
+    ports:
+      # IP-only first deployment: http://SERVER_IP:8788
+      # Change to "127.0.0.1:8787:8787" if fronting it with host nginx.
+      - "8788:8787"
+    environment:
+      RUST_LOG: info
+      TRITON_DEFAULT_CLUSTER: ${TRITON_DEFAULT_CLUSTER:-devnet}
+      TRITON_DEVNET_RPC_URL: ${TRITON_DEVNET_RPC_URL:?set TRITON_DEVNET_RPC_URL}
+      TRITON_MAINNET_RPC_URL: ${TRITON_MAINNET_RPC_URL:?set TRITON_MAINNET_RPC_URL}
+      TRITON_DEVNET_FALLBACK_RPC_URL: ${TRITON_DEVNET_FALLBACK_RPC_URL:-}
+      TRITON_MAINNET_FALLBACK_RPC_URL: ${TRITON_MAINNET_FALLBACK_RPC_URL:-}
+      TRITON_DEVNET_GRPC_URL: ${TRITON_DEVNET_GRPC_URL:-}
+      TRITON_MAINNET_GRPC_URL: ${TRITON_MAINNET_GRPC_URL:-}
+      RAYDIUM_DEBUGGER_API_TOKEN: ${RAYDIUM_DEBUGGER_API_TOKEN:-}
+      RAYDIUM_DEBUGGER_MAX_CONCURRENT_DEBUGS: ${RAYDIUM_DEBUGGER_MAX_CONCURRENT_DEBUGS:-4}
+      RAYDIUM_DEBUGGER_CASEBOOK_PATH: /data/casebooks.json
+    volumes:
+      - raydium-debugger-data:/data
+    networks:
+      - raydium-debugger
+
+volumes:
+  raydium-debugger-data:
+
+networks:
+  raydium-debugger:
+    name: raydium-debugger
