@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::{env, fs, path::Path};
 
 const OUTPUT: &str = "src/failures/raydium_registry.generated.json";
+const INSTRUCTION_OUTPUT: &str = "src/debug/raydium_instructions.generated.json";
 
 const SOURCES: &[Source] = &[
     Source {
@@ -137,6 +138,106 @@ fn validate() -> anyhow::Result<()> {
     assert_reference_code(&sources, "raydium_cpmm", 6001)?;
     assert_reference_code(&sources, "raydium_launchpad", 6001)?;
     assert_reference_code(&sources, "raydium_amm_v4", 30)?;
+    validate_instruction_registry(Path::new(INSTRUCTION_OUTPUT))?;
+    Ok(())
+}
+
+fn validate_instruction_registry(path: &Path) -> anyhow::Result<()> {
+    let raw =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let snapshot: Value = serde_json::from_str(&raw)?;
+    let sources = snapshot
+        .get("sources")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("instruction registry must contain sources[]"))?;
+    let required = [
+        (
+            "raydium_cpmm",
+            "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+            "swap_base_input",
+        ),
+        (
+            "raydium_clmm",
+            "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+            "swap",
+        ),
+        (
+            "raydium_launchlab",
+            "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
+            "buy_exact_in",
+        ),
+    ];
+    for (protocol, program_id, reference_instruction) in required {
+        let source = sources
+            .iter()
+            .find(|source| source.get("protocol").and_then(Value::as_str) == Some(protocol))
+            .ok_or_else(|| anyhow!("instruction registry is missing {protocol}"))?;
+        if source.get("program_id").and_then(Value::as_str) != Some(program_id) {
+            return Err(anyhow!("{protocol} has the wrong program id"));
+        }
+        let instructions = source
+            .get("instructions")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow!("{protocol} is missing instructions[]"))?;
+        if !instructions.iter().any(|instruction| {
+            instruction.get("name").and_then(Value::as_str) == Some(reference_instruction)
+        }) {
+            return Err(anyhow!(
+                "{protocol} is missing reference instruction {reference_instruction}"
+            ));
+        }
+        let mut discriminators = std::collections::BTreeSet::new();
+        for instruction in instructions {
+            let name = instruction
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("{protocol} instruction has empty name"))?;
+            let discriminator = instruction
+                .get("discriminator")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("{protocol}.{name} has empty discriminator"))?;
+            if discriminator.len() != 16 || !discriminator.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(anyhow!(
+                    "{protocol}.{name} discriminator is not 8 bytes of hex"
+                ));
+            }
+            if !discriminators.insert(discriminator) {
+                return Err(anyhow!(
+                    "{protocol} contains duplicate discriminator {discriminator}"
+                ));
+            }
+            let accounts = instruction
+                .get("accounts")
+                .and_then(Value::as_array)
+                .ok_or_else(|| anyhow!("{protocol}.{name} is missing accounts[]"))?;
+            for account in accounts {
+                if account
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .is_none_or(|value| value.trim().is_empty())
+                {
+                    return Err(anyhow!("{protocol}.{name} has an account with empty name"));
+                }
+            }
+            let args = instruction
+                .get("args")
+                .and_then(Value::as_array)
+                .ok_or_else(|| anyhow!("{protocol}.{name} is missing args[]"))?;
+            for arg in args {
+                if arg
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .is_none_or(|value| value.trim().is_empty())
+                    || arg
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .is_none_or(|value| value.trim().is_empty())
+                {
+                    return Err(anyhow!("{protocol}.{name} has an invalid arg"));
+                }
+            }
+        }
+    }
     Ok(())
 }
 

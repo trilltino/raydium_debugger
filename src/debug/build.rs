@@ -36,6 +36,7 @@ use super::logs::{
 };
 use super::raydium::classify_raydium_product;
 use super::raydium_context::build_raydium_context;
+use super::raydium_instructions::{decode as decode_raydium_instruction, protocol_for_program};
 use super::types::{
     AccountChange, ComputeBudgetInfo, DecodedInstruction, ExecutionComputeUsage, FreshnessInfo,
     InstructionAccountMeta, InstructionDebugInfo, InstructionSemanticDecode,
@@ -471,13 +472,16 @@ fn semantic_decode(
     accounts: &[String],
     account_indexes: &[u8],
 ) -> Option<InstructionSemanticDecode> {
-    let protocol = match program_id {
-        RAYDIUM_CPMM_PROGRAM_ID | RAYDIUM_CPMM_LEGACY_PROGRAM_ID => "raydium_cpmm",
-        RAYDIUM_CLMM_PROGRAM_ID => "raydium_clmm",
-        RAYDIUM_AMM_V4_PROGRAM_ID | RAYDIUM_AMM_V4_LEGACY_PROGRAM_ID => "raydium_amm_v4",
-        RAYDIUM_LAUNCHLAB_PROGRAM_ID => "raydium_launchlab",
-        _ => return None,
-    };
+    if let Some(decoded) =
+        decode_raydium_instruction(program_id, raw_data_base58, accounts, account_indexes)
+    {
+        return Some(decoded);
+    }
+
+    let protocol = protocol_for_program(program_id).or(match program_id {
+        RAYDIUM_AMM_V4_PROGRAM_ID | RAYDIUM_AMM_V4_LEGACY_PROGRAM_ID => Some("raydium_amm_v4"),
+        _ => None,
+    })?;
     let discriminator = bs58::decode(raw_data_base58)
         .into_vec()
         .ok()

@@ -97,7 +97,7 @@ pub(crate) fn build_raydium_context(
         }
     }
 
-    let swap_summary = swap_summary(instructions, &movements, &account_roles, &mut warnings);
+    let swap_summary = swap_summary(&raydium_decoded, &movements, &account_roles, &mut warnings);
     let has_context =
         !instruction_roles.is_empty() || !movements.is_empty() || !warnings.is_empty();
     has_context.then(|| RaydiumContext {
@@ -193,30 +193,37 @@ fn signed_delta(pre: &str, post: &str) -> String {
 }
 
 fn swap_summary(
-    instructions: &[InstructionDebugInfo],
+    decoded_instructions: &[DecodedInstruction],
     movements: &[TokenMovement],
     account_roles: &[RaydiumAccountRole],
     warnings: &mut Vec<String>,
 ) -> Option<RaydiumSwapSummary> {
-    let roles_are_proven = account_roles
-        .iter()
-        .any(|role| role.confidence == "high" && role.role.contains("token"));
-    let input = roles_are_proven
-        .then(|| {
-            movements
-                .iter()
-                .filter(|movement| movement.delta_raw.starts_with('-'))
-                .min_by_key(|movement| movement.delta_raw.parse::<i128>().unwrap_or_default())
-        })
-        .flatten();
-    let output = roles_are_proven
-        .then(|| {
-            movements
-                .iter()
-                .filter(|movement| movement.delta_raw.parse::<i128>().unwrap_or_default() > 0)
-                .max_by_key(|movement| movement.delta_raw.parse::<i128>().unwrap_or_default())
-        })
-        .flatten();
+    let swap_instruction = decoded_instructions.iter().find(|instruction| {
+        instruction
+            .semantic_decode
+            .as_ref()
+            .is_some_and(|semantic| is_swap_like(&semantic.instruction_name))
+    });
+    let roles_are_proven = swap_instruction.is_some()
+        && account_roles
+            .iter()
+            .any(|role| role.confidence == "high" && role.role.contains("token"));
+    let instruction_name = swap_instruction
+        .and_then(|instruction| instruction.semantic_decode.as_ref())
+        .map(|semantic| semantic.instruction_name.as_str())
+        .unwrap_or_default();
+    let input = movement_for_roles(
+        movements,
+        account_roles,
+        &input_role_candidates(instruction_name),
+        |delta| delta < 0,
+    );
+    let output = movement_for_roles(
+        movements,
+        account_roles,
+        &output_role_candidates(instruction_name),
+        |delta| delta > 0,
+    );
 
     if input.is_none() && output.is_none() && !account_roles.is_empty() {
         warnings.push(
@@ -242,7 +249,7 @@ fn swap_summary(
         })
         .collect::<Vec<_>>();
 
-    let limits = decoded_swap_limits(instructions);
+    let limits = decoded_swap_limits(decoded_instructions);
     let output_amount = output.map(|movement| movement.delta_raw.clone());
     let slippage_result = slippage_result(
         output_amount.as_deref(),
@@ -282,8 +289,109 @@ struct DecodedSwapLimits {
     max_input_raw: Option<String>,
 }
 
-fn decoded_swap_limits(_instructions: &[InstructionDebugInfo]) -> DecodedSwapLimits {
-    DecodedSwapLimits::default()
+fn decoded_swap_limits(instructions: &[DecodedInstruction]) -> DecodedSwapLimits {
+    let mut limits = DecodedSwapLimits::default();
+    for semantic in instructions
+        .iter()
+        .filter_map(|instruction| instruction.semantic_decode.as_ref())
+        .filter(|semantic| {
+            semantic.confidence == "high" && is_swap_like(&semantic.instruction_name)
+        })
+    {
+        let mut amount = None;
+        let mut other_threshold = None;
+        let mut is_base_input = None;
+        for arg in &semantic.arguments {
+            match arg.name.as_str() {
+                "amount_in" | "input_amount" => limits.input_amount_raw = Some(arg.value.clone()),
+                "minimum_amount_out" | "min_amount_out" | "min_out" => {
+                    limits.min_output_raw = Some(arg.value.clone())
+                }
+                "maximum_amount_in" | "max_amount_in" | "max_in" => {
+                    limits.max_input_raw = Some(arg.value.clone())
+                }
+                "amount" => amount = Some(arg.value.clone()),
+                "other_amount_threshold" => other_threshold = Some(arg.value.clone()),
+                "is_base_input" => is_base_input = Some(arg.value == "true"),
+                _ => {}
+            }
+        }
+        match is_base_input {
+            Some(true) => {
+                limits.input_amount_raw = limits.input_amount_raw.or(amount);
+                limits.min_output_raw = limits.min_output_raw.or(other_threshold);
+            }
+            Some(false) => {
+                limits.max_input_raw = limits.max_input_raw.or(other_threshold);
+            }
+            None => {}
+        }
+        if limits.input_amount_raw.is_some()
+            || limits.min_output_raw.is_some()
+            || limits.max_input_raw.is_some()
+        {
+            return limits;
+        }
+    }
+    limits
+}
+
+fn is_swap_like(name: &str) -> bool {
+    name.contains("swap") || name.contains("buy") || name.contains("sell")
+}
+
+fn movement_for_roles<'a>(
+    movements: &'a [TokenMovement],
+    account_roles: &[RaydiumAccountRole],
+    role_candidates: &[&str],
+    delta_predicate: impl Fn(i128) -> bool,
+) -> Option<&'a TokenMovement> {
+    role_candidates.iter().find_map(|candidate| {
+        account_roles
+            .iter()
+            .filter(|role| role.confidence == "high" && role.role == *candidate)
+            .find_map(|role| {
+                movements.iter().find(|movement| {
+                    movement.account_index == role.account_index
+                        && movement
+                            .delta_raw
+                            .parse::<i128>()
+                            .is_ok_and(&delta_predicate)
+                })
+            })
+    })
+}
+
+fn input_role_candidates(instruction_name: &str) -> Vec<&'static str> {
+    if instruction_name.contains("buy") {
+        return vec!["user_quote_token", "input_token_account"];
+    }
+    if instruction_name.contains("sell") {
+        return vec!["user_base_token", "input_token_account"];
+    }
+    vec![
+        "input_token_account",
+        "user_input_token",
+        "source_token_account",
+        "user_source_token",
+        "user_source_token_account",
+    ]
+}
+
+fn output_role_candidates(instruction_name: &str) -> Vec<&'static str> {
+    if instruction_name.contains("buy") {
+        return vec!["user_base_token", "output_token_account"];
+    }
+    if instruction_name.contains("sell") {
+        return vec!["user_quote_token", "output_token_account"];
+    }
+    vec![
+        "output_token_account",
+        "user_output_token",
+        "destination_token_account",
+        "user_destination_token",
+        "user_destination_token_account",
+    ]
 }
 
 fn slippage_result(
@@ -314,7 +422,7 @@ fn slippage_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::debug::types::InstructionAccountMeta;
+    use crate::debug::types::{DecodedArgument, InstructionAccountMeta, InstructionSemanticDecode};
 
     #[test]
     fn role_labeling_handles_cpmm_layout() {
@@ -351,5 +459,150 @@ mod tests {
             .warnings
             .iter()
             .any(|warning| warning.contains("semantic account roles were not proven")));
+    }
+
+    #[test]
+    fn swap_summary_uses_decoded_roles_not_largest_token_deltas() {
+        let decoded = vec![DecodedInstruction {
+            id: "outer_0".to_string(),
+            outer_instruction_index: 0,
+            inner_instruction_index: None,
+            invocation_kind: "outer".to_string(),
+            program_id: RAYDIUM_CPMM_PROGRAM_ID.to_string(),
+            program_label: "Raydium CPMM".to_string(),
+            accounts: Vec::new(),
+            account_indexes: Vec::new(),
+            raw_data_base58: String::new(),
+            discriminator: None,
+            semantic_decode: Some(InstructionSemanticDecode {
+                protocol: "raydium_cpmm".to_string(),
+                instruction_name: "swap_base_input".to_string(),
+                source: "test".to_string(),
+                confidence: "high".to_string(),
+                arguments: vec![
+                    DecodedArgument {
+                        name: "amount_in".to_string(),
+                        value: "100".to_string(),
+                    },
+                    DecodedArgument {
+                        name: "minimum_amount_out".to_string(),
+                        value: "95".to_string(),
+                    },
+                ],
+                accounts: Vec::new(),
+                remaining_accounts: Vec::new(),
+            }),
+        }];
+        let roles = vec![
+            RaydiumAccountRole {
+                instruction_index: 0,
+                account_index: 4,
+                pubkey: "user_in".to_string(),
+                role: "input_token_account".to_string(),
+                mint: Some("input_mint".to_string()),
+                owner: None,
+                writable: true,
+                signer: false,
+                source: "test".to_string(),
+                confidence: "high".to_string(),
+            },
+            RaydiumAccountRole {
+                instruction_index: 0,
+                account_index: 5,
+                pubkey: "user_out".to_string(),
+                role: "output_token_account".to_string(),
+                mint: Some("output_mint".to_string()),
+                owner: None,
+                writable: true,
+                signer: false,
+                source: "test".to_string(),
+                confidence: "high".to_string(),
+            },
+        ];
+        let movements = vec![
+            TokenMovement {
+                account_index: 99,
+                account: Some("unrelated".to_string()),
+                mint: "unrelated_mint".to_string(),
+                owner: None,
+                program_id: None,
+                pre_amount_raw: "10000".to_string(),
+                post_amount_raw: "1".to_string(),
+                delta_raw: "-9999".to_string(),
+                decimals: 6,
+                ui_pre_amount: "10000".to_string(),
+                ui_post_amount: "1".to_string(),
+            },
+            TokenMovement {
+                account_index: 4,
+                account: Some("user_in".to_string()),
+                mint: "input_mint".to_string(),
+                owner: None,
+                program_id: None,
+                pre_amount_raw: "100".to_string(),
+                post_amount_raw: "0".to_string(),
+                delta_raw: "-100".to_string(),
+                decimals: 6,
+                ui_pre_amount: "100".to_string(),
+                ui_post_amount: "0".to_string(),
+            },
+            TokenMovement {
+                account_index: 5,
+                account: Some("user_out".to_string()),
+                mint: "output_mint".to_string(),
+                owner: None,
+                program_id: None,
+                pre_amount_raw: "0".to_string(),
+                post_amount_raw: "98".to_string(),
+                delta_raw: "98".to_string(),
+                decimals: 6,
+                ui_pre_amount: "0".to_string(),
+                ui_post_amount: "98".to_string(),
+            },
+        ];
+        let mut warnings = Vec::new();
+
+        let summary = swap_summary(&decoded, &movements, &roles, &mut warnings).unwrap();
+
+        assert_eq!(summary.input_mint.as_deref(), Some("input_mint"));
+        assert_eq!(summary.output_mint.as_deref(), Some("output_mint"));
+        assert_eq!(summary.input_amount_raw.as_deref(), Some("100"));
+        assert_eq!(summary.output_amount_raw.as_deref(), Some("98"));
+        assert_eq!(summary.min_output_raw.as_deref(), Some("95"));
+    }
+
+    #[test]
+    fn clmm_exact_output_sets_max_input_threshold() {
+        let decoded = vec![DecodedInstruction {
+            semantic_decode: Some(InstructionSemanticDecode {
+                protocol: "raydium_clmm".to_string(),
+                instruction_name: "swap".to_string(),
+                source: "test".to_string(),
+                confidence: "high".to_string(),
+                arguments: vec![
+                    DecodedArgument {
+                        name: "amount".to_string(),
+                        value: "50".to_string(),
+                    },
+                    DecodedArgument {
+                        name: "other_amount_threshold".to_string(),
+                        value: "60".to_string(),
+                    },
+                    DecodedArgument {
+                        name: "is_base_input".to_string(),
+                        value: "false".to_string(),
+                    },
+                ],
+                accounts: Vec::new(),
+                remaining_accounts: Vec::new(),
+            }),
+            ..DecodedInstruction::default()
+        }];
+
+        let limits = decoded_swap_limits(&decoded);
+
+        assert_eq!(limits.input_amount_raw, None);
+        assert_eq!(limits.min_output_raw, None);
+        assert_eq!(limits.max_input_raw.as_deref(), Some("60"));
     }
 }

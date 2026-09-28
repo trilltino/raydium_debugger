@@ -13,6 +13,7 @@ mod instructions;
 mod logs;
 mod raydium;
 mod raydium_context;
+mod raydium_instructions;
 mod types;
 
 pub use build::debug_transaction;
