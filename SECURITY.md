@@ -19,6 +19,10 @@ The Axum server creates a local API token at startup unless
 data routes. Treat this as local drive-by request protection, not internet-grade
 authentication.
 
+The server binds to loopback by default and rejects non-loopback bind addresses
+unless started with `--allow-non-loopback`. Only use that override behind a
+trusted network boundary, because `/api/session` is designed for the local UI.
+
 ## Reporting
 
 Report suspected token leakage, RPC override bypasses, unsafe transaction
