@@ -1,3 +1,4 @@
+import { activeInvestigation } from './investigation-recovery';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import {
@@ -29,8 +30,12 @@ import {
   createIntegrator,
   diagnoseTransaction,
   getProviderStatus,
+  investigate,
+  resumeInvestigation,
+  retryInvestigation,
   listCasebooks,
   listIntegrators,
+  listRecentGroups,
   saveCasebookSignature,
   saveIntegratorSignature,
 } from './api';
@@ -44,22 +49,41 @@ import type {
   ExecutionNode,
   InstructionDebugInfo,
   IntegratorRecord,
+  InvestigationEvent,
+  InvestigationResult,
   ProviderStatus,
+  RecentObservationSummary,
   SavedSignature,
   StandardizedFailure,
 } from './types';
 import './styles.css';
+import { Help } from './help/Help';
 
 type Tab = 'summary' | 'instructions' | 'compute' | 'accounts' | 'logs' | 'raw';
 
 function App() {
+  const [helpVisible, setHelpVisible] = React.useState(() => window.location.hash.startsWith('#help'));
+  React.useEffect(() => {
+    const navigate = () => setHelpVisible(window.location.hash.startsWith('#help'));
+    window.addEventListener('hashchange', navigate);
+    return () => window.removeEventListener('hashchange', navigate);
+  }, []);
   const [signature, setSignature] = React.useState('');
+  const [symptom, setSymptom] = React.useState('');
+  const [recentGroups, setRecentGroups] = React.useState<RecentObservationSummary[]>([]);
+  const [groupsLoading, setGroupsLoading] = React.useState(false);
+  const [groupsLoaded, setGroupsLoaded] = React.useState(false);
   const [cluster, setCluster] = React.useState<'devnet' | 'mainnet'>('devnet');
+  React.useEffect(() => { setRecentGroups([]); setGroupsLoaded(false); }, [cluster]);
   const [providers, setProviders] = React.useState<ProviderStatus | null>(null);
   const [activeTab, setActiveTab] = React.useState<Tab>('summary');
   const [response, setResponse] = React.useState<DiagnosticResponse | null>(null);
+  const [investigation, setInvestigation] = React.useState<InvestigationResult | null>(null);
+  const [investigationProgress, setInvestigationProgress] = React.useState('');
+  const [recoverableId, setRecoverableId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
+  const [investigating, setInvestigating] = React.useState(false);
   const [question, setQuestion] = React.useState('');
   const [aiModel, setAiModel] = React.useState('');
   const [aiAnswer, setAiAnswer] = React.useState<string | null>(null);
@@ -72,6 +96,40 @@ function App() {
   const [newIntegratorName, setNewIntegratorName] = React.useState('');
   const [newCasebookName, setNewCasebookName] = React.useState('');
   const [savingSignature, setSavingSignature] = React.useState(false);
+  const resultsRef = React.useRef<HTMLElement>(null);
+
+  React.useEffect(() => {
+    if ((!response && !investigation) || helpVisible || !window.matchMedia('(max-width: 720px)').matches) return;
+    resultsRef.current?.focus({ preventScroll: true });
+    resultsRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' });
+  }, [response, investigation]);
+
+  React.useEffect(() => {
+    const active = activeInvestigation();
+    if (!active) return;
+    let cancelled = false;
+    setInvestigating(true);
+    resumeInvestigation(active.id, (event) => {
+      if (!cancelled) setInvestigationProgress(event.message ?? event.stage ?? 'Recovering progress');
+    }).then((result) => {
+      if (cancelled) return;
+      setInvestigation(result); setResponse(result.transaction_diagnosis); setInvestigationProgress('Investigation recovered');
+    }).catch((failure: unknown) => {
+      if (cancelled) return;
+      setError(failure instanceof Error ? failure.message : String(failure)); setRecoverableId(active.id);
+    }).finally(() => { if (!cancelled) setInvestigating(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  async function retryActiveInvestigation() {
+    if (!recoverableId) return;
+    setInvestigating(true); setError(null);
+    try {
+      const result = await retryInvestigation(recoverableId, (event) => setInvestigationProgress(event.message ?? event.stage ?? 'Working'));
+      setInvestigation(result); setResponse(result.transaction_diagnosis); setRecoverableId(null);
+    } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
+    finally { setInvestigating(false); }
+  }
 
   React.useEffect(() => {
     let cancelled = false;
@@ -135,6 +193,8 @@ function App() {
     setLoading(true);
     setError(null);
     setAiAnswer(null);
+    setInvestigation(null);
+    setRecoverableId(null);
     try {
       const diagnosis = await diagnoseTransaction({
         signature: signature.trim(),
@@ -147,6 +207,51 @@ function App() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function runInvestigation(event: React.FormEvent | null, fingerprint?: string) {
+    event?.preventDefault();
+    const signatureValue = fingerprint ? "" : signature.trim();
+    const symptomValue = fingerprint ? "" : symptom.trim();
+    if (!signatureValue && !symptomValue && !fingerprint) {
+      setError('Enter a transaction signature, describe the symptom, or provide both.');
+      return;
+    }
+    if (signatureValue) {
+      const configError = clusterConfigError(cluster, providers);
+      if (configError) {
+        setError(configError);
+        return;
+      }
+    }
+    setInvestigating(true);
+    setError(null);
+    setInvestigation(null);
+    setResponse(null);
+    setInvestigationProgress('Starting investigation');
+    try {
+      const result = await investigate(
+        {
+          signature: signatureValue || null,
+          symptom: symptomValue || null,
+          recent_fingerprint: fingerprint ?? null,
+          cluster,
+        },
+        (eventUpdate: InvestigationEvent) => {
+          if (eventUpdate.event_type === 'progress') {
+            setInvestigationProgress(eventUpdate.message ?? eventUpdate.stage ?? 'Working');
+          }
+        },
+      );
+      setInvestigation(result);
+      setResponse(result.transaction_diagnosis);
+      setActiveTab('summary');
+      setInvestigationProgress('Investigation complete');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInvestigating(false);
     }
   }
 
@@ -248,6 +353,7 @@ function App() {
     setSignature(saved.signature);
     setCluster(saved.cluster);
     setResponse(null);
+    setInvestigation(null);
     setAiAnswer(null);
     setActiveTab('summary');
   }
@@ -267,19 +373,22 @@ function App() {
           </div>
         </div>
         <nav className="topnav" aria-label="Debugger sections">
-          <span>Debug</span>
-          <span>Casebooks</span>
-          <span>Evidence</span>
+          <a href="#debug" aria-current={!helpVisible ? 'page' : undefined}>Debug</a>
+          <a href="#help" aria-current={helpVisible ? 'page' : undefined}>Updates</a>
         </nav>
       </header>
 
-      <main className="shell">
+      {helpVisible && <Help />}
+      <main className="shell debug-view" hidden={helpVisible}>
         <section className="swap-console" aria-label="Transaction debugger console">
           <form className="query" onSubmit={runDebug}>
             <label className="field field--wide">
               <span>Transaction signature</span>
               <input
                 value={signature}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 onChange={(event) => setSignature(event.target.value)}
                 placeholder="Paste a Solana transaction signature"
                 required
@@ -301,6 +410,39 @@ function App() {
               Debug
             </button>
           </form>
+
+          {recoverableId && <button type="button" disabled={investigating} onClick={() => void retryActiveInvestigation()}>Retry investigation</button>}
+          <form className="investigation-query" onSubmit={(event) => void runInvestigation(event)}>
+            <label className="field">
+              <span>Support symptom</span>
+              <input
+                value={symptom}
+                onChange={(event) => setSymptom(event.target.value)}
+                placeholder="Describe what went wrong (optional with a signature)"
+              />
+            </label>
+            <button
+              className="secondary"
+              type="submit"
+              disabled={investigating || (!signature.trim() && !symptom.trim())}
+            >
+              {investigating ? <Loader2 className="spin" size={17} /> : <Search size={17} />}
+              Investigate
+            </button>
+          </form>
+          <section aria-label="Recent execution groups" className="recent-groups">
+            <button type="button" className="secondary" disabled={groupsLoading || investigating} onClick={async () => {
+              setGroupsLoading(true); setError(null);
+              try { setRecentGroups(await listRecentGroups(cluster)); setGroupsLoaded(true); }
+              catch (error) { setError(error instanceof Error ? error.message : String(error)); }
+              finally { setGroupsLoading(false); }
+            }}>{groupsLoading ? 'Loading observations…' : 'Browse recent observations'}</button>
+            {groupsLoaded && recentGroups.length === 0 && <p className="muted">No recent observations for this cluster.</p>}
+            {recentGroups.filter((group) => group.cluster === cluster).map((group) => <button type="button" className="secondary" key={`${group.cluster}:${group.source}:${group.fingerprint}`} disabled={investigating}
+              onClick={() => void runInvestigation(null, group.fingerprint)}>
+              Investigate {group.source} · {group.instruction ?? 'execution'}{group.error_code ? ` · error ${group.error_code}` : ''} · {new Date(group.observed_at * 1000).toLocaleString()}
+            </button>)}
+          </section>
 
           <IntegratorLibrary
             integrators={integrators}
@@ -333,17 +475,18 @@ function App() {
           </div>
         )}
 
-        {!debug ? (
+        {!debug && !investigation ? (
           <EmptyState />
         ) : (
-          <>
-            <StatusStrip response={debug} />
-            {!info ? (
+          <section ref={resultsRef} tabIndex={-1} aria-label="Diagnostic results">
+            {investigation && <InvestigationPanel result={investigation} progress={investigationProgress} />}
+            {debug && <StatusStrip response={debug} />}
+            {debug && !info ? (
               <section className="content content--single">
                 <DiagnosisPanel response={debug} />
                 <ObservationPanel response={debug} />
               </section>
-            ) : (
+            ) : debug && info ? (
             <div className="layout">
               <section className="content">
                 <Tabs active={activeTab} onChange={setActiveTab} />
@@ -358,8 +501,8 @@ function App() {
                 <Recommendations info={info} />
               </aside>
             </div>
-            )}
-          </>
+            ) : null}
+          </section>
         )}
       </main>
     </div>
@@ -605,6 +748,116 @@ function EmptyState() {
   );
 }
 
+function InvestigationPanel({
+  result,
+  progress,
+}: {
+  result: InvestigationResult;
+  progress: string;
+}) {
+  return (
+    <section className="investigation-result" aria-label="Investigation result">
+      <header className="investigation-result__header">
+        <div>
+          <span>Investigation · {result.status}</span>
+          {result.symptom && <h2>{result.symptom}</h2>}
+          {result.signature && <code>{result.signature}</code>}
+          {!result.symptom && !result.signature && <h2>Recent execution investigation</h2>}
+        </div>
+        <p aria-live="polite">{progress}</p>
+      </header>
+
+      {result.transaction_error && (
+        <p className="investigation-note investigation-note--warn">
+          Transaction evidence unavailable: {result.transaction_error}
+        </p>
+      )}
+
+      <section className="investigation-section" aria-label="Approved incidents">
+        <h3>Reviewed incidents</h3>
+        {result.related_incidents.length === 0 ? (
+          <p className="muted">No approved historical incident matched this input.</p>
+        ) : (
+          <div className="investigation-list">
+            {result.related_incidents.map((incident) => (
+              <article className="investigation-item" key={incident.id}>
+                <div className="investigation-item__meta">
+                  {incident.product && <span>{incident.product}</span>}
+                  {incident.failure_domain && <span>{incident.failure_domain}</span>}
+                  <span>{incident.evidence_message_count} reviewed messages</span>
+                </div>
+                <h4>{incident.summary}</h4>
+                <p>{incident.resolution}</p>
+                {result.incident_matches?.filter((match) => match.incident_id === incident.id).map((match) => <div key={match.incident_id}>
+                  <p>{match.strength} historical match · {match.reasons.join('; ')}</p>
+                  {match.missing_signals.length > 0 && <p className="muted">Missing evidence: {match.missing_signals.join('; ')}</p>}
+                </div>)}
+                {incident.symptom_tags.length > 0 && (
+                  <div className="investigation-tags">
+                    {incident.symptom_tags.map((tag) => <span key={tag}>{tag}</span>)}
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {result.incident_matches?.some((match) => match.contradictions.length > 0) && <section className="investigation-section" aria-label="Rejected incidents">
+        <h3>Contradictory incidents excluded</h3>
+        {result.incident_matches.filter((match) => match.contradictions.length > 0).map((match) => <p key={match.incident_id}>{match.incident_id}: {match.contradictions.join('; ')}</p>)}
+      </section>}
+
+      <section className="investigation-section" aria-label="Recent observations">
+        <h3>Recent observations</h3>
+        {result.recent_observations.length === 0 ? (
+          <p className="muted">No matching recent operational observation was found.</p>
+        ) : (
+          <div className="investigation-list">
+            {result.recent_observations.map((observation) => (
+              <div className="investigation-observation" key={`${observation.cluster}:${observation.source}:${observation.fingerprint}`}>
+                <strong>{observation.source} · {observation.cluster}</strong>
+                <span>{observation.instruction ?? 'execution observation'}</span>
+                {observation.error_code && <code>error {observation.error_code}</code>}
+                {observation.slot !== null && <code>slot {observation.slot}</code>}
+                <time dateTime={new Date(observation.observed_at * 1000).toISOString()}>
+                  {new Date(observation.observed_at * 1000).toLocaleString()}
+                </time>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="investigation-section" aria-label="Evidence ledger">
+        <h3>Evidence</h3>
+        {result.evidence.length === 0 ? (
+          <p className="muted">No evidence records are available yet.</p>
+        ) : (
+          <ol className="investigation-evidence">
+            {result.evidence.map((item) => (
+              <li key={item.evidence_id}>
+                <span>{item.evidence_type.replace(/_/g, ' ')}</span>
+                <p>{item.summary}</p>
+                <code>{item.source_reference}</code>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      {result.unknowns.length > 0 && (
+        <section className="investigation-section" aria-label="Unknowns">
+          <h3>Unknowns</h3>
+          <ul className="list warn">
+            {result.unknowns.map((unknown) => <li key={unknown}>{unknown}</li>)}
+          </ul>
+        </section>
+      )}
+    </section>
+  );
+}
+
 function StatusStrip({ response }: { response: DiagnosticResponse }) {
   const info = response.transaction;
   const failure = info?.failure;
@@ -647,9 +900,9 @@ function Tabs({ active, onChange }: { active: Tab; onChange: (tab: Tab) => void 
     ['raw', 'Raw'],
   ];
   return (
-    <div className="tabs">
+    <div className="tabs" role="group" aria-label="Transaction evidence views">
       {tabs.map(([key, label]) => (
-        <button key={key} type="button" className={active === key ? 'is-active' : ''} onClick={() => onChange(key)}>
+        <button key={key} type="button" aria-pressed={active === key} className={active === key ? 'is-active' : ''} onClick={() => onChange(key)}>
           {label}
         </button>
       ))}
@@ -1134,7 +1387,7 @@ function Instructions({ instructions, executionTree, decoded }: { instructions: 
 
 function ExecutionFrame({ node, decoded }: { node: ExecutionNode; decoded: DecodedInstruction | null }) {
   return (
-    <div className={`frame frame--${node.failed ? 'failed' : node.status}`} style={{ paddingLeft: `${node.depth * 18 + 10}px` }}>
+    <div className={`frame frame--${node.failed ? 'failed' : node.status}`} style={{ '--frame-indent': `${node.depth * 18 + 10}px` } as React.CSSProperties}>
       <span>{node.failed ? 'failed' : node.status}</span>
       <code>{node.program_label}</code>
       <small>
@@ -1183,11 +1436,11 @@ function Accounts({ accounts }: { accounts: AccountEvidence[] }) {
         </div>
         {accounts.slice(0, 80).map((account) => (
           <div className="trow" key={`${account.index}-${account.pubkey}`}>
-            <span>{account.index}</span>
-            <code title={account.pubkey}>{shortAddress(account.pubkey)}</code>
-            <span>{account.owner_label ?? shortAddress(account.owner ?? '-')}</span>
-            <span>{[account.signer && 'signer', account.writable && 'writable', account.executable && 'exec'].filter(Boolean).join(', ') || '-'}</span>
-            <strong>{signed(account.lamports_change_exact)}</strong>
+            <span data-label="Index">{account.index}</span>
+            <code data-label="Account" title={account.pubkey}>{shortAddress(account.pubkey)}</code>
+            <span data-label="Owner">{account.owner_label ?? shortAddress(account.owner ?? '-')}</span>
+            <span data-label="Flags">{[account.signer && 'signer', account.writable && 'writable', account.executable && 'exec'].filter(Boolean).join(', ') || '-'}</span>
+            <strong data-label="Delta">{signed(account.lamports_change_exact)}</strong>
           </div>
         ))}
       </div>

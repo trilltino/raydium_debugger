@@ -1,0 +1,166 @@
+{
+  "label": "post-refactor",
+  "runs": 3,
+  "summary": {
+    "import": {
+      "seconds": 2.5452117000004364,
+      "peak_bytes": 23859200
+    },
+    "unchanged_import": {
+      "seconds": 0.7287728000001152,
+      "peak_bytes": 20951040
+    },
+    "matching": {
+      "seconds": 0.015272599999661907,
+      "peak_bytes": 4747264
+    },
+    "collector": {
+      "seconds": 0.2871445999999196,
+      "peak_bytes": 8339456
+    }
+  },
+  "records": {
+    "import": [
+      {
+        "seconds": 2.7823111000006975,
+        "peak_bytes": 23949312
+      },
+      {
+        "seconds": 2.3689799000003404,
+        "peak_bytes": 23797760
+      },
+      {
+        "seconds": 2.5452117000004364,
+        "peak_bytes": 23859200
+      }
+    ],
+    "unchanged_import": [
+      {
+        "seconds": 0.7287728000001152,
+        "peak_bytes": 20951040
+      },
+      {
+        "seconds": 0.7629199999992125,
+        "peak_bytes": 20951040
+      },
+      {
+        "seconds": 0.7202846000000136,
+        "peak_bytes": 20938752
+      }
+    ],
+    "matching": [
+      {
+        "seconds": 0.02030200000081095,
+        "peak_bytes": 4534272,
+        "matching_report": {
+          "reviewed": false,
+          "queries": 16,
+          "precision_at_3": 1.0,
+          "recall_at_3": 1.0,
+          "mean_reciprocal_rank": 1.0,
+          "baseline_recall_at_3": 0.625,
+          "correct_abstentions": 8,
+          "coverage": 0.5,
+          "abstention_rate": 0.5,
+          "contradiction_violations": 0,
+          "p50_micros": 36,
+          "p95_micros": 112,
+          "quality_gate": true,
+          "failures": []
+        }
+      },
+      {
+        "seconds": 0.013750500000242027,
+        "peak_bytes": 4902912,
+        "matching_report": {
+          "reviewed": false,
+          "queries": 16,
+          "precision_at_3": 1.0,
+          "recall_at_3": 1.0,
+          "mean_reciprocal_rank": 1.0,
+          "baseline_recall_at_3": 0.625,
+          "correct_abstentions": 8,
+          "coverage": 0.5,
+          "abstention_rate": 0.5,
+          "contradiction_violations": 0,
+          "p50_micros": 40,
+          "p95_micros": 114,
+          "quality_gate": true,
+          "failures": []
+        }
+      },
+      {
+        "seconds": 0.015272599999661907,
+        "peak_bytes": 4747264,
+        "matching_report": {
+          "reviewed": false,
+          "queries": 16,
+          "precision_at_3": 1.0,
+          "recall_at_3": 1.0,
+          "mean_reciprocal_rank": 1.0,
+          "baseline_recall_at_3": 0.625,
+          "correct_abstentions": 8,
+          "coverage": 0.5,
+          "abstention_rate": 0.5,
+          "contradiction_violations": 0,
+          "p50_micros": 36,
+          "p95_micros": 92,
+          "quality_gate": true,
+          "failures": []
+        }
+      }
+    ],
+    "collector": [
+      {
+        "seconds": 0.2871445999999196,
+        "peak_bytes": 8396800
+      },
+      {
+        "seconds": 0.3290029999998296,
+        "peak_bytes": 8212480
+      },
+      {
+        "seconds": 0.2186493999997765,
+        "peak_bytes": 8339456
+      }
+    ]
+  },
+  "compatibility_counts": [
+    {
+      "source_files": 28,
+      "message_revisions": 26011
+    },
+    {
+      "source_files": 28,
+      "message_revisions": 26011
+    },
+    {
+      "source_files": 28,
+      "message_revisions": 26011
+    }
+  ],
+  "executable_sha256": "fc3d26fdf84fa432876482b68044f8f666e9fddcdfdaf3b1b1eb6a5896bf86a2",
+  "matching_latency_micros": {
+    "p50_micros": 36,
+    "p95_micros": 112
+  },
+  "comparison": {
+    "import": {
+      "seconds_change_percent": -65.76993369710688,
+      "peak_bytes_change_percent": -0.34217279726261873
+    },
+    "unchanged_import": {
+      "seconds_change_percent": -63.6672753422238,
+      "peak_bytes_change_percent": 0.8080409932991639
+    },
+    "matching": {
+      "seconds_change_percent": -59.660434077722435,
+      "peak_bytes_change_percent": -14.716703458425318
+    },
+    "collector": {
+      "seconds_change_percent": -61.35208728895498,
+      "peak_bytes_change_percent": -1.6425120772946888
+    }
+  },
+  "baseline_report_sha256": "bc3be629f2c7a574acc972809eef9ed6e16752cf729a5f13a8744c7d4820c448"
+}

@@ -1,0 +1,23 @@
+[package]
+name = "raydium-observability"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.96.1"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[features]
+default = []
+ingestion = []
+collection = ["ingestion", "dep:reqwest"]
+
+[dependencies]
+anyhow = "=1.0.103"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.149"
+rusqlite = { version = "=0.37.0", features = ["bundled", "backup"] }
+raydium_debugger = { path = "../.." }
+bs58 = "=0.5.1"
+sha2 = "=0.10.9"
+reqwest = { version = "=0.12.28", features = ["blocking", "json", "rustls-tls"], default-features = false, optional = true }
+

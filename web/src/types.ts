@@ -18,6 +18,73 @@ export interface DiagnosticResponse {
   formatted_text: string;
 }
 
+export interface InvestigationRequest {
+  recent_fingerprint?: string | null;
+  signature?: string | null;
+  symptom?: string | null;
+  cluster?: 'devnet' | 'mainnet' | null;
+}
+
+export interface CuratedIncident {
+  id: string;
+  product: string | null;
+  failure_domain: string | null;
+  summary: string;
+  resolution: string;
+  symptom_tags: string[];
+  evidence_message_count: number;
+}
+
+export interface RecentObservationSummary {
+  source: string;
+  cluster: string;
+  observed_at: number;
+  slot: number | null;
+  program_id: string | null;
+  instruction: string | null;
+  error_code: string | null;
+  fingerprint: string;
+}
+
+export interface InvestigationEvidence {
+  evidence_id: string;
+  evidence_type: string;
+  source_reference: string;
+  summary: string;
+  observed_at: number | null;
+}
+
+export interface InvestigationResult {
+  investigation_id: string;
+  status: string;
+  signature: string | null;
+  symptom: string | null;
+  cluster: string | null;
+  transaction_diagnosis: DiagnosticResponse | null;
+  transaction_error: string | null;
+  related_incidents: CuratedIncident[];
+  incident_matches?: { incident_id: string; strength: string; score: number; reasons: string[]; missing_signals: string[]; contradictions: string[] }[];
+  recent_observations: RecentObservationSummary[];
+  evidence: InvestigationEvidence[];
+  unknowns: string[];
+}
+
+export interface InvestigationLookup {
+  investigation_id: string;
+  status: string;
+  result: InvestigationResult | null;
+}
+
+export interface InvestigationEvent {
+  event_id?: string;
+  event_type: string;
+  investigation_id: string;
+  stage: string | null;
+  message: string | null;
+  result: InvestigationResult | null;
+  error: string | null;
+}
+
 export interface ObservationStatus {
   status: string;
   cluster: string | null;

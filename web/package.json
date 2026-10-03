@@ -10,7 +10,8 @@
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "test:native": "wdio run wdio.native.conf.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
@@ -25,7 +26,12 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "@wdio/cli": "^9.32.0",
+    "@wdio/local-runner": "^9.32.0",
+    "@wdio/mocha-framework": "^9.32.0",
+    "@wdio/spec-reporter": "^9.32.0",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "webdriverio": "^9.32.0"
   }
 }

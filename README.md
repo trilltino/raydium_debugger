@@ -375,6 +375,19 @@ Run browser E2E tests:
 just e2e
 ```
 
+The browser suite covers desktop Chrome, Android touch, a narrow 320px phone,
+and iPhone Safari via WebKit. Install its browser binaries after frontend setup:
+
+```powershell
+cd web
+npx playwright install chromium webkit
+npm run test:e2e -- --project=mobile --project=mobile-small --project=mobile-safari
+```
+
+Mobile checks include touch navigation, Help filters, and preserving transaction
+evidence when moving between Help and Debug. WebKit device emulation does not
+replace testing on a physical iPhone.
+
 Run opt-in live Triton checks:
 
 ```powershell
@@ -382,6 +395,20 @@ just live-check
 ```
 
 The CI/release gates cover Rust formatting, workspace checks, Clippy with warnings denied, Rust tests, documentation, dependency policy, Raydium registry validation, frontend typechecking/building, npm audit, and Playwright browser tests.
+
+The Windows native suite launches the built desktop application with WebView2
+and verifies actual IPC, restart recovery and interrupted-work retry:
+
+```powershell
+npm --prefix web run build
+cargo build -p raydium-debugger-tauri --features custom-protocol -p xtask --locked
+cargo install tauri-driver --version 2.0.6 --locked
+./scripts/install-edge-driver.ps1
+npm --prefix web run test:native
+```
+
+Verified delivery results, private review-pack instructions and the performance
+comparison are recorded in [docs/delivery-verification.md](docs/delivery-verification.md).
 
 ## Security model
 
@@ -478,3 +505,5 @@ The current focus is making Raydium transaction diagnosis increasingly precise, 
 - Triton One getting started: https://docs.triton.one/getting-started
 - Raydium docs: https://docs.raydium.io/
 - Raydium LaunchLab SDK constants: https://docs.rs/raydium-launchlab-sdk/latest/src/raydium_launchlab/constants.rs.html
+
+Live collection, recent-group investigation, desktop evidence paths, and matching evaluation are documented in [docs/investigation-runtime.md](docs/investigation-runtime.md).

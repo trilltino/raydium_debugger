@@ -2,12 +2,13 @@
 
 mod app;
 mod error;
+use raydium_debugger_server::investigation;
 mod routes;
 mod state;
 mod store;
 
 use clap::Parser;
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 /// Local Axum server for the debugger API and built React app.
 #[derive(Parser, Debug)]
@@ -17,48 +18,54 @@ struct Args {
     /// Socket address used by the local HTTP server.
     #[arg(long, default_value = "127.0.0.1:8787")]
     bind: SocketAddr,
-    /// Allow binding the local-token server to a non-loopback interface.
-    #[arg(long)]
-    allow_non_loopback: bool,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let result = runtime.block_on(run());
+    runtime.shutdown_timeout(std::time::Duration::from_secs(1));
+    result
+}
+
+async fn run() -> anyhow::Result<()> {
     dotenvy::from_filename(".env.local").ok();
     dotenvy::dotenv().ok();
-    ensure_triton_configured()?;
+    raydium_investigation::init_tracing();
     let args = Args::parse();
-    ensure_local_bind(args.bind, args.allow_non_loopback)?;
+    ensure_local_bind(args.bind)?;
     let listener = tokio::net::TcpListener::bind(args.bind).await?;
 
     println!("raydium-debugger-server listening on http://{}", args.bind);
-    axum::serve(listener, app::router()?).await?;
+    let state = Arc::new(tokio::task::spawn_blocking(state::AppState::from_env).await??);
+    let service = state.investigation_service.clone();
+    let router = app::router_with_state(state);
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let server = axum::serve(listener, router).with_graceful_shutdown(async {
+        let _ = stopped.await;
+    });
+    let server = std::future::IntoFuture::into_future(server);
+    tokio::pin!(server);
+    tokio::select! {
+        result = &mut server => result?,
+        _ = tokio::signal::ctrl_c() => {
+            let _ = stop.send(());
+            let drain = service.shutdown();
+            tokio::pin!(drain);
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(15), async { let _ = tokio::join!(&mut server, &mut drain); }).await;
+        }
+    }
     Ok(())
 }
 
-fn ensure_triton_configured() -> anyhow::Result<()> {
-    let devnet = triton_env_is_set("TRITON_DEVNET_RPC_URL");
-    let mainnet = triton_env_is_set("TRITON_MAINNET_RPC_URL");
-    if devnet || mainnet {
+fn ensure_local_bind(bind: SocketAddr) -> anyhow::Result<()> {
+    if bind.ip().is_loopback() {
         return Ok(());
     }
 
     anyhow::bail!(
-        "Triton RPC is not configured. Set TRITON_DEVNET_RPC_URL and TRITON_MAINNET_RPC_URL in .env.local, then restart with `just dev`."
-    );
-}
-
-fn triton_env_is_set(key: &str) -> bool {
-    std::env::var(key).is_ok_and(|value| !value.trim().is_empty())
-}
-
-fn ensure_local_bind(bind: SocketAddr, allow_non_loopback: bool) -> anyhow::Result<()> {
-    if allow_non_loopback || bind.ip().is_loopback() {
-        return Ok(());
-    }
-
-    anyhow::bail!(
-        "refusing to bind local-token API to non-loopback address {bind}; use --allow-non-loopback only behind a trusted network boundary"
+        "refusing to bind local-token API to non-loopback address {bind}; use an operator-controlled tunnel for remote access"
     );
 }
 
@@ -69,13 +76,12 @@ mod tests {
     #[test]
     fn loopback_bind_is_allowed() {
         let bind: SocketAddr = "127.0.0.1:8787".parse().unwrap();
-        assert!(ensure_local_bind(bind, false).is_ok());
+        assert!(ensure_local_bind(bind).is_ok());
     }
 
     #[test]
-    fn public_bind_requires_explicit_opt_in() {
+    fn public_bind_is_always_rejected() {
         let bind: SocketAddr = "0.0.0.0:8787".parse().unwrap();
-        assert!(ensure_local_bind(bind, false).is_err());
-        assert!(ensure_local_bind(bind, true).is_ok());
+        assert!(ensure_local_bind(bind).is_err());
     }
 }

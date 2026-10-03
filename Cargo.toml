@@ -23,7 +23,7 @@ exclude = [
 
 [workspace]
 resolver = "2"
-members = [".", "server", "src-tauri", "xtask"]
+members = [".", "server", "src-tauri", "xtask", "crates/*"]
 
 [features]
 default = []

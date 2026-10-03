@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{env, fs, path::Path};
 
+mod support_knowledge;
+
 const OUTPUT: &str = "src/failures/raydium_registry.generated.json";
 const INSTRUCTION_OUTPUT: &str = "src/debug/raydium_instructions.generated.json";
 
@@ -148,8 +150,9 @@ fn main() -> anyhow::Result<()> {
                 other
             )),
         },
+        Some("support-knowledge") => support_knowledge::run(&args[2..]),
         _ => Err(anyhow!(
-            "usage: cargo run -p xtask -- <raydium-registry|raydium-instructions> <generate|validate|drift>"
+            "usage: cargo run -p xtask -- <raydium-registry|raydium-instructions> <command> | support-knowledge import-html <export-directory> [database-path]"
         )),
     }
 }

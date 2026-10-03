@@ -1,0 +1,355 @@
+{
+  "schema_version": 1,
+  "review_status": "pending_domain_review",
+  "reviewer": null,
+  "provenance": "Synthetic regression fixtures authored during implementation; no private archive cases or human review claims.",
+  "incidents": [
+    {
+      "id": "pool-index",
+      "product": null,
+      "failure_domain": "indexing",
+      "summary": "Pool not showing after creation",
+      "resolution": "Verify current evidence before applying this historical check.",
+      "symptom_tags": [
+        "pool_visibility"
+      ],
+      "evidence_message_count": 3
+    },
+    {
+      "id": "token-funds",
+      "product": null,
+      "failure_domain": "execution",
+      "summary": "Token transfer failed with insufficient funds",
+      "resolution": "Verify current evidence before applying this historical check.",
+      "symptom_tags": [
+        "balance",
+        "funds"
+      ],
+      "evidence_message_count": 3,
+      "must": [
+        {
+          "feature": "program",
+          "value": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "feature": "error",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "id": "swap-slippage",
+      "product": null,
+      "failure_domain": "execution",
+      "summary": "Swap failed because slippage tolerance was exceeded",
+      "resolution": "Verify current evidence before applying this historical check.",
+      "symptom_tags": [
+        "slippage"
+      ],
+      "evidence_message_count": 3
+    },
+    {
+      "id": "devnet-pool",
+      "product": null,
+      "failure_domain": "execution",
+      "summary": "Devnet pool initialization failed",
+      "resolution": "Verify current evidence before applying this historical check.",
+      "symptom_tags": [
+        "initialization"
+      ],
+      "evidence_message_count": 3,
+      "must": [
+        {
+          "feature": "cluster",
+          "value": "devnet"
+        }
+      ]
+    },
+    {
+      "id": "retired-pool",
+      "product": null,
+      "failure_domain": "indexing",
+      "summary": "Pool not showing after creation",
+      "resolution": "Verify current evidence before applying this historical check.",
+      "symptom_tags": [
+        "pool_visibility"
+      ],
+      "evidence_message_count": 3,
+      "retired": true
+    },
+    {
+      "id": "era-pool",
+      "product": null,
+      "failure_domain": "indexing",
+      "summary": "Pool not showing after creation",
+      "resolution": "Verify current evidence before applying this historical check.",
+      "symptom_tags": [
+        "pool_visibility"
+      ],
+      "evidence_message_count": 3,
+      "valid_from": 100,
+      "valid_until": 200
+    }
+  ],
+  "queries": [
+    {
+      "id": "literal-pool",
+      "query": "pool not showing",
+      "relevant": [
+        "pool-index",
+        "era-pool"
+      ],
+      "forbidden": [
+        "retired-pool"
+      ],
+      "features": {
+        "facts": {},
+        "observed_at": null
+      }
+    },
+    {
+      "id": "paraphrase-pool",
+      "query": "my pool is not visible after creation",
+      "relevant": [
+        "pool-index",
+        "era-pool"
+      ],
+      "forbidden": [
+        "retired-pool"
+      ],
+      "features": {
+        "facts": {},
+        "observed_at": null
+      }
+    },
+    {
+      "id": "alternate-pool",
+      "query": "cannot see pool after creation",
+      "relevant": [
+        "pool-index",
+        "era-pool"
+      ],
+      "forbidden": [
+        "retired-pool"
+      ],
+      "features": {
+        "facts": {},
+        "observed_at": null
+      }
+    },
+    {
+      "id": "success-not-failure",
+      "query": "pool not showing after creation",
+      "relevant": [
+        "pool-index",
+        "era-pool"
+      ],
+      "forbidden": [
+        "swap-slippage",
+        "token-funds"
+      ],
+      "features": {
+        "facts": {
+          "outcome": [
+            "success"
+          ]
+        },
+        "observed_at": null
+      }
+    },
+    {
+      "id": "funds-unknown",
+      "query": "token transfer failed insufficient funds",
+      "relevant": [
+        "token-funds"
+      ],
+      "forbidden": [
+        "swap-slippage"
+      ],
+      "features": {
+        "facts": {},
+        "observed_at": null
+      }
+    },
+    {
+      "id": "funds-paraphrase",
+      "query": "token transfer failed not enough funds",
+      "relevant": [
+        "token-funds"
+      ],
+      "forbidden": [],
+      "features": {
+        "facts": {
+          "program": [
+            "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+          ],
+          "error": [
+            "1"
+          ],
+          "error_program": [
+            "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+          ]
+        },
+        "observed_at": null
+      }
+    },
+    {
+      "id": "wrong-code",
+      "query": "token transfer insufficient funds",
+      "relevant": [],
+      "forbidden": [
+        "token-funds"
+      ],
+      "features": {
+        "facts": {
+          "program": [
+            "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+          ],
+          "error": [
+            "2"
+          ],
+          "error_program": [
+            "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+          ]
+        },
+        "observed_at": null
+      }
+    },
+    {
+      "id": "wrong-program",
+      "query": "token transfer insufficient funds",
+      "relevant": [],
+      "forbidden": [
+        "token-funds"
+      ],
+      "features": {
+        "facts": {
+          "program": [
+            "11111111111111111111111111111111"
+          ],
+          "error": [
+            "1"
+          ],
+          "error_program": [
+            "11111111111111111111111111111111"
+          ]
+        },
+        "observed_at": null
+      }
+    },
+    {
+      "id": "cpi-code-scope",
+      "query": "token transfer insufficient funds",
+      "relevant": [],
+      "forbidden": [
+        "token-funds"
+      ],
+      "features": {
+        "facts": {
+          "program": [
+            "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+            "11111111111111111111111111111111"
+          ],
+          "error": [
+            "1"
+          ],
+          "error_program": [
+            "11111111111111111111111111111111"
+          ]
+        },
+        "observed_at": null
+      }
+    },
+    {
+      "id": "slippage",
+      "query": "swap failed slippage tolerance",
+      "relevant": [
+        "swap-slippage"
+      ],
+      "forbidden": [],
+      "features": {
+        "facts": {},
+        "observed_at": null
+      }
+    },
+    {
+      "id": "negation",
+      "query": "no slippage in swap",
+      "relevant": [],
+      "forbidden": [
+        "swap-slippage"
+      ],
+      "features": {
+        "facts": {},
+        "observed_at": null
+      }
+    },
+    {
+      "id": "success-contradiction",
+      "query": "swap failed slippage",
+      "relevant": [],
+      "forbidden": [
+        "swap-slippage"
+      ],
+      "features": {
+        "facts": {
+          "outcome": [
+            "success"
+          ]
+        },
+        "observed_at": null
+      }
+    },
+    {
+      "id": "cluster-contradiction",
+      "query": "devnet pool initialization failed",
+      "relevant": [],
+      "forbidden": [
+        "devnet-pool"
+      ],
+      "features": {
+        "facts": {
+          "cluster": [
+            "mainnet"
+          ]
+        },
+        "observed_at": null
+      }
+    },
+    {
+      "id": "unknown-topic",
+      "query": "how to change profile picture",
+      "relevant": [],
+      "forbidden": [],
+      "features": {
+        "facts": {},
+        "observed_at": null
+      }
+    },
+    {
+      "id": "time-contradiction",
+      "query": "pool not showing after creation",
+      "relevant": [
+        "pool-index"
+      ],
+      "forbidden": [
+        "retired-pool",
+        "era-pool"
+      ],
+      "features": {
+        "facts": {},
+        "observed_at": 300
+      }
+    },
+    {
+      "id": "word-boundary",
+      "query": "swapping slippages",
+      "relevant": [],
+      "forbidden": [],
+      "features": {
+        "facts": {},
+        "observed_at": null
+      }
+    }
+  ]
+}

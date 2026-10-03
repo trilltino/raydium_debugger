@@ -1,8 +1,9 @@
 //! Shared server state for local auth, concurrency, and persistence.
 
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Semaphore;
 
+use crate::investigation::{InvestigationService, RuntimeLimits, RuntimePaths};
 use crate::store::SignatureStore;
 
 const DEFAULT_MAX_CONCURRENT_DEBUGS: usize = 4;
@@ -16,6 +17,10 @@ pub struct AppState {
     pub debug_limit: Arc<Semaphore>,
     /// Local JSON store for integrator-owned transaction examples.
     pub store: SignatureStore,
+    /// Shared lifecycle and bounded progress replay.
+    pub investigation_service: InvestigationService,
+    /// Operational DB used only for redacted recent-observation summaries.
+    pub observations_database_path: PathBuf,
 }
 
 impl AppState {
@@ -30,11 +35,21 @@ impl AppState {
             .and_then(|value| value.parse::<usize>().ok())
             .filter(|value| *value > 0)
             .unwrap_or(DEFAULT_MAX_CONCURRENT_DEBUGS);
-
+        let paths = RuntimePaths::from_env(std::path::Path::new(".raydium-debugger"));
+        let observations_database_path = paths.observations.clone();
+        let investigation_service = InvestigationService::new(
+            paths,
+            RuntimeLimits {
+                rpc_jobs: max_concurrent,
+                ..RuntimeLimits::default()
+            },
+        )?;
         Ok(Self {
             api_token,
-            debug_limit: Arc::new(Semaphore::new(max_concurrent)),
+            debug_limit: investigation_service.rpc_capacity(),
             store: SignatureStore::from_env()?,
+            investigation_service,
+            observations_database_path,
         })
     }
 }

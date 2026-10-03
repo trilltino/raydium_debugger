@@ -11,7 +11,7 @@ signature = "3BnYrz7ZeKwpn4HMWQUome32MsCYp9LjtsmgzDLzQkt1MqY3QuKDxbKeTb1sKeYpWtj
 cluster = "mainnet"
 success = false
 required_code = "0x1780"
-required_text = ["program-specific custom error"]
+required_text = ["Unknown custom program error"]
 
 [[case]]
 name = "token_2022_insufficient_funds"

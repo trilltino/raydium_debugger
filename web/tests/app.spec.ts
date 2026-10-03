@@ -101,6 +101,132 @@ test('renders non-observed diagnosis as a result, not an error', async ({ page }
   await expect(page.locator('.alert')).toHaveCount(0);
 });
 
+test('runs symptom-only investigation and renders evidence-backed context', async ({ page }) => {
+  const result = {
+    investigation_id: 'investigation-test-1',
+    status: 'complete',
+    signature: null,
+    symptom: 'pool not showing',
+    cluster: 'devnet',
+    transaction_diagnosis: null,
+    transaction_error: null,
+    related_incidents: [
+      {
+        id: 'case-approved-1',
+        product: 'raydium_cpmm',
+        failure_domain: 'indexing',
+        summary: 'Pool exists but is not discoverable yet',
+        resolution: 'Check the indexer refresh window and confirm the pool account.',
+        symptom_tags: ['pool_visibility'],
+        evidence_message_count: 4,
+      },
+    ],
+    recent_observations: [
+      {
+        source: 'indexer',
+        cluster: 'devnet',
+        observed_at: 1_790_000_000,
+        slot: 123,
+        program_id: null,
+        instruction: 'pool_refresh',
+        error_code: null,
+        fingerprint: 'fingerprint-1',
+      },
+    ],
+    evidence: [
+      {
+        evidence_id: 'investigation-test-1:report',
+        evidence_type: 'user_report',
+        source_reference: 'investigation-test-1',
+        summary: 'pool not showing',
+        observed_at: null,
+      },
+    ],
+    unknowns: [],
+  };
+  const accepted = {
+    event_type: 'progress',
+    investigation_id: result.investigation_id,
+    stage: 'accepted',
+    message: 'Investigation accepted',
+    result: null,
+    error: null,
+  };
+  const complete = {
+    event_type: 'complete',
+    investigation_id: result.investigation_id,
+    stage: 'complete',
+    message: 'Investigation complete',
+    result,
+    error: null,
+  };
+  await page.route('**/api/investigate', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: `event: progress\ndata: ${JSON.stringify(accepted)}\n\nevent: complete\ndata: ${JSON.stringify(complete)}\n\n`,
+    });
+  });
+
+  await page.goto('/');
+  await page.getByPlaceholder('Describe what went wrong (optional with a signature)').fill('pool not showing');
+  await page.getByRole('button', { name: 'Investigate' }).click();
+  await expect(page.getByRole('region', { name: 'Investigation result' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pool exists but is not discoverable yet' })).toBeVisible();
+  await expect(page.getByText('Check the indexer refresh window and confirm the pool account.')).toBeVisible();
+  await expect(page.getByText('indexer · devnet')).toBeVisible();
+  await expect(page.getByText('Investigation complete')).toBeVisible();
+});
+
+test('recovers a completed investigation after the SSE stream closes early', async ({ page }) => {
+  const result = {
+    investigation_id: 'investigation-recovered-1',
+    status: 'complete',
+    signature: null,
+    symptom: 'pool missing',
+    cluster: 'devnet',
+    transaction_diagnosis: null,
+    transaction_error: null,
+    related_incidents: [],
+    recent_observations: [],
+    evidence: [],
+    unknowns: ['No approved historical incident matched this input.'],
+  };
+  await page.route('**/api/investigate', async (route) => {
+    const accepted = {
+      event_type: 'progress',
+      investigation_id: result.investigation_id,
+      stage: 'accepted',
+      message: 'Investigation accepted',
+      result: null,
+      error: null,
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: `event: progress\ndata: ${JSON.stringify(accepted)}\n\n`,
+    });
+  });
+  await page.route('**/api/investigations/investigation-recovered-1', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        investigation_id: result.investigation_id,
+        status: 'complete',
+        result,
+      }),
+    });
+  });
+
+  await page.goto('/');
+  await page.getByPlaceholder('Describe what went wrong (optional with a signature)').fill('pool missing');
+  await page.getByRole('button', { name: 'Investigate' }).click();
+  await expect(page.getByRole('region', { name: 'Investigation result' })).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: 'Unknowns' }).getByText('No approved historical incident matched this input.'),
+  ).toBeVisible();
+});
+
 test('shows structured backend errors without mocked data', async ({ page }) => {
   await page.goto('/');
   await page.getByPlaceholder('Paste a Solana transaction signature').fill('not-a-signature');
@@ -142,6 +268,47 @@ test('shows integrator store validation errors', async ({ page }) => {
 test.describe('live RPC e2e', () => {
   test.skip(process.env.RUN_LIVE_E2E !== '1', 'Set RUN_LIVE_E2E=1 to hit live Solana RPC.');
 
+  test('investigates a signature and symptom through the browser, server, and real RPC', async ({ page, request }) => {
+    test.setTimeout(120_000);
+    const tx = liveCase('devnet_success');
+    await page.goto('/');
+    await page.getByPlaceholder('Paste a Solana transaction signature').fill(tx.signature);
+    await page.getByLabel('Cluster').selectOption(tx.cluster);
+    await page.getByLabel('Support symptom').fill('pool not showing after successful creation');
+    const completeResponse = page.waitForResponse((response) => response.url().endsWith('/api/investigate') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Investigate', exact: true }).click();
+    const response = await completeResponse;
+    expect(response.status()).toBe(200);
+    await expect(page.getByRole('region', { name: 'Investigation result', exact: true }).getByText('Investigation complete', { exact: true })).toBeVisible({ timeout: 120_000 });
+    // The app cancels its SSE reader after completion; Chromium may discard the
+    // response body. Replay the actual delivered cursor from the durable ledger.
+    const cursor = await page.evaluate(() => {
+      const key = Object.keys(localStorage).find((key) => key.startsWith('raydium-investigation:'));
+      return key ? JSON.parse(localStorage.getItem(key)!) as { id: string; after: string } : null;
+    });
+    expect(cursor).not.toBeNull();
+    expect(BigInt(cursor!.after)).toBeGreaterThan(0n);
+    const session = await (await request.get('/api/session')).json();
+    const headers = { 'x-raydium-debugger-token': session.api_token };
+    const replay = await request.get(`/api/investigations/${cursor!.id}/events?after=0`, { headers });
+    expect(replay.status()).toBe(200);
+    const stream = await replay.text();
+    const block = stream.split(/\r?\n/).find((line) => line.startsWith('data:') && line.includes('"event_type":"complete"'));
+    expect(block, stream).toBeTruthy();
+    const result = JSON.parse(block!.slice(5).trim()).result;
+    expect(result.transaction_error).toBeNull();
+    expect(result.transaction_diagnosis.observation.status).toBe('landed');
+    expect(result.transaction_diagnosis.transaction.signature).toBe(tx.signature);
+    expect(result.transaction_diagnosis.transaction.success).toBe(true);
+    expect(Number(result.transaction_diagnosis.transaction.slot_exact)).toBeGreaterThan(0);
+    expect(result.evidence.some((item: { evidence_type: string }) => item.evidence_type === 'transaction_diagnosis')).toBe(true);
+    await expect(page.getByRole('region', { name: 'Investigation result', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Evidence ledger' }).getByText(tx.signature, { exact: true })).toBeVisible();
+    expect(result.investigation_id).toBe(cursor!.id);
+    const lookup = await request.get(`/api/investigations/${result.investigation_id}`, { headers });
+    expect((await lookup.json()).result).toEqual(result);
+  });
+
   test('debugs a real devnet transaction', async ({ page }) => {
     const tx = liveCase('devnet_success');
     await page.goto('/');
@@ -173,13 +340,62 @@ test.describe('live RPC e2e', () => {
     await page.getByLabel('Cluster').selectOption(tx.cluster);
     await page.getByRole('button', { name: /debug/i }).click();
 
-    await expect(page.getByRole('heading', { name: 'Token-2022 account needs more funds' })).toBeVisible({
+    await expect(page.locator('.result').getByRole('heading', { name: 'Token-2022 account needs more funds' })).toBeVisible({
       timeout: 60_000,
     });
     await expect(page.getByText('What To Do Next')).toBeVisible();
-    await expect(page.getByRole('listitem').filter({ hasText: /Find the token account used as the source\/input account/ })).toBeVisible();
+    const nextActions = page.locator('section.panel').filter({ has: page.getByRole('heading', { name: 'What To Do Next', exact: true }) });
+    await expect(nextActions.getByText(/Find the token account used as the source\/input account/)).toBeVisible();
     await expect(page.getByText('How We Decoded This')).toBeVisible();
     await expect(page.getByText(/Matched code 1 \(0x1\) against the Token-2022 error list/)).toBeVisible();
     await expect(page.getByText('Do not retry blindly')).toHaveCount(0);
   });
+});
+
+test('starts an investigation from a real recent observation group without a signature', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('Cluster').selectOption('devnet');
+  await page.getByRole('button', { name: 'Browse recent observations' }).click();
+  const submission = page.waitForResponse((response) => response.url().endsWith('/api/investigate'));
+  await page.getByRole('button', { name: /Investigate indexer.*pool_refresh/ }).click();
+  const response = await submission;
+  const input = response.request().postDataJSON();
+  expect(input.signature).toBeNull();
+  expect(input.symptom).toBeNull();
+  expect(input.recent_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+  expect(input.cluster).toBe('devnet');
+  await expect(page.getByRole('heading', { name: 'Recent execution investigation' })).toBeVisible();
+  const region = page.getByRole('region', { name: 'Recent observations', exact: true });
+  await expect(region.getByText('pool_refresh')).toBeVisible();
+  await expect(page.getByText(/private operational detail/)).toHaveCount(0);
+});
+
+test('desktop symptom investigation uses the shared command instead of signature diagnosis', async ({ page }) => {
+  await page.addInitScript(() => {
+    const records: { command: string; args: unknown }[] = [];
+    Object.assign(window, { desktopCalls: records, __TAURI_INTERNALS__: {
+      transformCallback: () => 1,
+      unregisterCallback: () => {},
+      invoke: async (command: string, args: { request?: { symptom?: string } }) => {
+        records.push({ command, args });
+        if (command === 'providers_cmd') return { name: 'triton_one', triton: { devnet_configured: false, mainnet_configured: false } };
+        if (command === 'investigate_cmd') return {
+          investigation_id: 'desktop-symptom', status: 'partial', signature: null, symptom: args.request?.symptom,
+          cluster: 'devnet', transaction_diagnosis: null, transaction_error: null, related_incidents: [], recent_observations: [],
+          evidence: [{ evidence_id: 'desktop-symptom:report', evidence_type: 'user_report', source_reference: 'desktop-symptom', summary: args.request?.symptom, observed_at: null }],
+          unknowns: ['No transaction signature was supplied; no on-chain failure is asserted.'],
+        };
+        throw new Error(`Unexpected desktop command: ${command}`);
+      },
+    } });
+  });
+  await page.goto('/');
+  await page.getByLabel('Support symptom').fill('pool not showing');
+  await page.getByRole('button', { name: 'Investigate', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Investigation result', exact: true })).toBeVisible();
+  const calls = await page.evaluate(() => (window as unknown as { desktopCalls: { command: string; args: { request?: { symptom?: string; signature?: string | null } } }[] }).desktopCalls);
+  const investigation = calls.find((call) => call.command === 'investigate_cmd');
+  expect(investigation?.args.request?.symptom).toBe('pool not showing');
+  expect(investigation?.args.request?.signature).toBeNull();
+  expect(calls.some((call) => call.command === 'debug_transaction_cmd')).toBe(false);
 });

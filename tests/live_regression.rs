@@ -24,6 +24,9 @@ fn live_triton_regressions_from_manifest() {
         return;
     }
 
+    dotenvy::from_filename(".env.local").ok();
+    dotenvy::dotenv().ok();
+
     let manifest: LiveManifest =
         toml::from_str(include_str!("live_signatures.toml")).expect("valid live manifest");
     for case in manifest.case {

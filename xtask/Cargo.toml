@@ -11,3 +11,4 @@ chrono = { version = "=0.4.44", features = ["serde"] }
 reqwest = { version = "=0.12.28", features = ["blocking", "json", "rustls-tls"], default-features = false }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.149"
+raydium-knowledge-builder = { path = "../crates/raydium-knowledge-builder" }
