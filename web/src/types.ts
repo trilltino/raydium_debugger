@@ -35,6 +35,91 @@ export interface CuratedIncident {
   evidence_message_count: number;
 }
 
+export interface CorpusReviewRow {
+  id: string;
+  kind: 'case' | 'orphan';
+  preview: string;
+  date: string;
+  message_count: number;
+  ai_outcome: string | null;
+  ai_tier: string | null;
+  ai_status: string | null;
+  value_status: string | null;
+  review_status: string;
+  category: string | null;
+}
+
+export interface CorpusReviewList {
+  packet_count: number;
+  case_count: number;
+  orphan_count: number;
+  classified_count: number;
+  invalid_count: number;
+  reviewed_count: number;
+  approved_count: number;
+  guidance_count: number;
+  filtered_count: number;
+  items: CorpusReviewRow[];
+}
+
+export interface CorpusMessage {
+  revision_id: number;
+  source_message_id: string;
+  sender: string | null;
+  date: string | null;
+  body: string;
+  attachments: { status: string; text?: string; relative_path?: string; visual_review_needed?: boolean }[];
+}
+
+export interface CorpusPacket {
+  case_id: string;
+  kind: 'case' | 'orphan';
+  evidence_fingerprint: string;
+  messages: CorpusMessage[];
+  references: { id: string; repo: string; commit: string; path: string; start_line: number; text: string }[];
+  upgrade_context: { id: string; date: string; status: string; summary?: string; body_excerpt?: string }[];
+}
+
+export interface CorpusDecision {
+  evidence_fingerprint: string;
+  value_status: 'valuable' | 'uncertain' | 'not_useful';
+  outcome: 'confirmed' | 'team_fixed' | 'proposed' | 'unknown';
+  category: string;
+  diagnosis: string;
+  summary: string;
+  resolution: string;
+  guidance: string;
+  product: string;
+  failure_domain: string;
+  evidence_revision_ids: number[];
+  reference_ids: string[];
+  rationale: string;
+  reviewer: string;
+  action: 'save' | 'approve' | 'publish_guidance' | 'reject';
+}
+
+export interface CorpusReviewDetail {
+  packet: CorpusPacket;
+  draft: {
+    status?: string;
+    error?: string;
+    outcome?: 'historical_resolution' | 'general_guidance' | 'open';
+    tier?: 'reporter_confirmed' | 'team_fixed' | 'proposed_only' | 'unknown';
+    category?: string;
+    diagnosis?: string | null;
+    resolution?: string | null;
+    general_guidance?: string | null;
+    message_evidence?: { revision_id: number; quote: string }[];
+    reference_ids?: string[];
+    upgrade_ids?: string[];
+    confidence?: string;
+    unanswered_questions?: string[];
+  } | null;
+  decision: CorpusDecision | null;
+  review_status: string;
+  rule_signals: { revision_id: number; signal: string }[];
+}
+
 export interface RecentObservationSummary {
   source: string;
   cluster: string;
@@ -194,6 +279,46 @@ export interface AiAskRequest {
 export interface AiResponse {
   model: string;
   answer: string;
+  knowledge?: AiKnowledgeContext;
+  updates?: AiUpdateContext;
+}
+
+export interface AiUpdateContext {
+  status: 'unavailable' | 'empty' | 'no_match' | 'matched';
+  update_count: number;
+  updates: Array<{
+    update_id: string;
+    date: string;
+    announced_at: string | null;
+    status: 'planned' | 'live' | 'delayed' | 'unknown';
+    summary: string;
+    excerpt: string;
+    source_url: string;
+    reference_repo: string | null;
+    reference_commit: string | null;
+    reference_path: string | null;
+    reference_excerpt: string | null;
+  }>;
+}
+
+export interface AiKnowledgeContext {
+  status: 'unavailable' | 'empty' | 'no_match' | 'matched';
+  incident_count: number;
+  incidents: Array<{
+    incident_id: string;
+    summary: string;
+    resolution: string;
+    strength: string;
+    reasons: string[];
+    missing_signals: string[];
+  }>;
+  guidance_count?: number;
+  guidance?: Array<{
+    guidance_id: string;
+    summary: string;
+    guidance: string;
+    matched_terms: string[];
+  }>;
 }
 
 export interface TransactionDebugInfo {

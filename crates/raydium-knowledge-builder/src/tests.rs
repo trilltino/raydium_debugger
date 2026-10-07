@@ -243,7 +243,7 @@ fn candidate_groups_use_reply_edges_and_preserve_review_decisions() {
     .unwrap();
     let second_page = [
         message_html_with_reply("8", "reply one", Some("7")),
-        message_html_with_reply("9", "reply two", Some("8")),
+        message_html_as("9", "We fixed the issue.", Some("8"), "Support"),
         message_html("10", &format!("same address {shared_address}")),
         message_html("11", &format!("same address {shared_address}")),
     ]
@@ -304,6 +304,22 @@ fn candidate_groups_use_reply_edges_and_preserve_review_decisions() {
         "support_process",
         "A user reported an issue in a reply thread.",
         "Ask for a transaction signature and confirm the selected cluster.",
+    )
+    .unwrap();
+    let fix_revision: i64 = connection
+        .query_row(
+            "SELECT revision_id FROM message_revisions WHERE source_message_id='9'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    verify_resolution(
+        &connection,
+        &case_id,
+        "team_fixed",
+        &fix_revision.to_string(),
+        "Team explicitly stated a fix",
+        "test-reviewer",
     )
     .unwrap();
     review_candidate(
@@ -520,6 +536,267 @@ fn extracts_only_expected_base58_lengths_and_normalizes_numeric_errors() {
         .all(|entity| entity.canonical_value == "38"));
     assert_eq!(canonical_entity_query("Custom(38)"), "38");
     assert_eq!(canonical_entity_query("0x26"), "38");
+}
+
+#[test]
+fn resolution_reconciliation_review_compile_and_staleness() {
+    let directory = std::env::temp_dir().join(format!(
+        "resolution-e2e-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&directory).unwrap();
+    let database_path = directory.join("support.sqlite");
+    let mut connection = Connection::open(&database_path).unwrap();
+    initialize_schema(&connection).unwrap();
+    let conversation = [
+        message_html_as("1", "CLMM swap failed", None, "Reporter"),
+        message_html_as(
+            "2",
+            "Please refresh the page and try again",
+            Some("1"),
+            "Support",
+        ),
+        message_html_as("3", "It worked, resolved", Some("2"), "Reporter"),
+        message_html_as("4", "Token pool creation failed", None, "Reporter"),
+        message_html_as(
+            "5",
+            "We fixed the pool creation issue",
+            Some("4"),
+            "Support",
+        ),
+        message_html_as("6", "Withdrawal failed", None, "Reporter"),
+        message_html_as("7", "Try changing wallet", Some("6"), "Support"),
+        message_html_as("8", "No liquidity", None, "Reporter"),
+        message_html_as("9", "Checking logs", Some("8"), "Support"),
+        message_html_as("10", "Fixed unrelated issue", None, "Stranger"),
+        message_html_as("11", "Metadata missing", None, "Reporter"),
+        message_html_as(
+            "12",
+            "Issue has been resolved, thanks",
+            Some("11"),
+            "Reporter",
+        ),
+    ]
+    .join("\n");
+    import_source(
+        &mut connection,
+        "support",
+        "messages.html",
+        conversation.as_bytes(),
+    )
+    .unwrap();
+    resolve_reply_edges(&mut connection).unwrap();
+    rebuild_candidate_cases(&mut connection).unwrap();
+    reconcile_resolutions(&mut connection).unwrap();
+    let case_for = |message_id: &str| -> String {
+        connection.query_row(
+            "SELECT cm.case_id FROM candidate_case_messages cm JOIN message_revisions m ON m.revision_id=cm.revision_id WHERE m.source_message_id=?1 AND m.source_file_id=(SELECT max(source_file_id) FROM source_files)",
+            [message_id], |r| r.get(0)
+        ).unwrap()
+    };
+    let confirmed = case_for("1");
+    let team = case_for("4");
+    let proposed = case_for("6");
+    let unknown = case_for("8");
+    let outcome_only = case_for("11");
+    assert_eq!(
+        suggested_tier(&connection, &confirmed).unwrap(),
+        "confirmed"
+    );
+    assert_eq!(suggested_tier(&connection, &team).unwrap(), "team_fixed");
+    assert_eq!(suggested_tier(&connection, &proposed).unwrap(), "proposed");
+    assert_eq!(suggested_tier(&connection, &unknown).unwrap(), "unknown");
+    assert_eq!(
+        suggested_tier(&connection, &outcome_only).unwrap(),
+        "confirmed"
+    );
+    assert!(verify_resolution(
+        &connection,
+        &confirmed,
+        "confirmed",
+        &revision_for(&connection, "10").to_string(),
+        "wrong case",
+        "reviewer"
+    )
+    .is_err());
+    let evidence = format!(
+        "{},{}",
+        revision_for(&connection, "2"),
+        revision_for(&connection, "3")
+    );
+    verify_resolution(
+        &connection,
+        &confirmed,
+        "confirmed",
+        &evidence,
+        "Reporter confirmed the retry",
+        "reviewer",
+    )
+    .unwrap();
+    annotate_candidate(
+        &connection,
+        &confirmed,
+        "clmm",
+        "swap",
+        "CLMM swap failed",
+        "Refresh and retry the page",
+    )
+    .unwrap();
+    review_candidate(
+        &mut connection,
+        &confirmed,
+        "approve",
+        "Verified messages",
+        "reviewer",
+    )
+    .unwrap();
+    verify_resolution(
+        &connection,
+        &team,
+        "team_fixed",
+        &revision_for(&connection, "5").to_string(),
+        "Team stated fix",
+        "reviewer",
+    )
+    .unwrap();
+    annotate_candidate(
+        &connection,
+        &team,
+        "cpmm",
+        "pool_creation",
+        "Token pool creation failed",
+        "Team stated pool creation was fixed; refresh and retry",
+    )
+    .unwrap();
+    review_candidate(
+        &mut connection,
+        &team,
+        "approve",
+        "Team stated fix",
+        "reviewer",
+    )
+    .unwrap();
+    verify_resolution(
+        &connection,
+        &proposed,
+        "proposed",
+        &revision_for(&connection, "7").to_string(),
+        "Suggestion only",
+        "reviewer",
+    )
+    .unwrap();
+    annotate_candidate(
+        &connection,
+        &proposed,
+        "unknown",
+        "withdrawal",
+        "Withdrawal failed",
+        "Try changing wallet",
+    )
+    .unwrap();
+    assert!(review_candidate(
+        &mut connection,
+        &proposed,
+        "approve",
+        "Unconfirmed",
+        "reviewer"
+    )
+    .is_err());
+    let registry = build_generated_registry(&connection).unwrap();
+    assert_eq!(registry.incidents.len(), 2);
+    let path = directory.join("incidents.json");
+    compile_registry_to_file(&database_path, &path).unwrap();
+    let loaded = raydium_knowledge::CompiledRegistry::load(&path).unwrap();
+    assert!(loaded.incidents().iter().any(|i| i.id == confirmed));
+    assert!(loaded
+        .matches("CLMM swap failed", &Default::default())
+        .0
+        .iter()
+        .any(|i| i.id == confirmed));
+    let suggestion_count: i64 = connection
+        .query_row(
+            "SELECT count(*) FROM case_resolution_suggestions",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    reconcile_resolutions(&mut connection).unwrap();
+    assert_eq!(
+        suggestion_count,
+        connection
+            .query_row(
+                "SELECT count(*) FROM case_resolution_suggestions",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap()
+    );
+    assert_eq!(review_state(&connection, &confirmed).unwrap(), "reviewed");
+    let changed = conversation.replace("It worked, resolved", "It still fails");
+    import_source(
+        &mut connection,
+        "support",
+        "messages.html",
+        changed.as_bytes(),
+    )
+    .unwrap();
+    resolve_reply_edges(&mut connection).unwrap();
+    rebuild_candidate_cases(&mut connection).unwrap();
+    assert_eq!(
+        suggested_tier(&connection, &confirmed).unwrap(),
+        "not_scanned"
+    );
+    reconcile_resolutions(&mut connection).unwrap();
+    assert_eq!(
+        review_state(&connection, &confirmed).unwrap(),
+        "stale_review"
+    );
+    assert!(build_generated_registry(&connection).is_err());
+    assert!(compile_registry_to_file(&database_path, &path).is_err());
+    drop(connection);
+    fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
+fn resolution_rules_do_not_treat_future_fix_question_as_confirmation() {
+    let messages = vec![
+        ResolutionMessage {
+            revision_id: 1,
+            sender: Some("Reporter".into()),
+            body: "The display is wrong".into(),
+        },
+        ResolutionMessage {
+            revision_id: 2,
+            sender: Some("Support".into()),
+            body: "Please try again after the next update".into(),
+        },
+        ResolutionMessage {
+            revision_id: 3,
+            sender: Some("Reporter".into()),
+            body: "Will we be fixing it tomorrow?".into(),
+        },
+    ];
+    assert!(!signals(&messages)
+        .iter()
+        .any(|(_, signal)| *signal == "reporter_confirmation"));
+}
+
+fn message_html_as(message_id: &str, body: &str, reply_to: Option<&str>, sender: &str) -> String {
+    message_html_with_reply(message_id, body, reply_to).replace("Example User", sender)
+}
+
+fn revision_for(connection: &Connection, message_id: &str) -> i64 {
+    connection
+        .query_row(
+            "SELECT revision_id FROM message_revisions WHERE source_message_id=?1",
+            [message_id],
+            |r| r.get(0),
+        )
+        .unwrap()
 }
 
 fn message_html(message_id: &str, body: &str) -> String {

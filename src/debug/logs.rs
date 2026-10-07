@@ -416,6 +416,7 @@ fn decode_token_instruction_data(
     let (instruction_type, parameters) = match opcode {
         3 => ("transfer", transfer_params(accounts, amount)),
         4 => ("approve", approve_params(accounts, amount)),
+        5 => ("revoke", revoke_params(accounts)),
         7 => ("mint_to", mint_to_params(accounts, amount)),
         8 => ("burn", burn_params(accounts, amount)),
         9 => ("close_account", close_account_params(accounts)),
@@ -477,6 +478,13 @@ fn approve_params(accounts: &[String], amount: Option<u64>) -> Vec<TokenInstruct
     push_account(&mut params, "delegate", accounts, 1);
     push_account(&mut params, "authority", accounts, 2);
     push_amount(&mut params, amount);
+    params
+}
+
+fn revoke_params(accounts: &[String]) -> Vec<TokenInstructionParameter> {
+    let mut params = Vec::new();
+    push_account(&mut params, "source", accounts, 0);
+    push_account(&mut params, "owner", accounts, 1);
     params
 }
 
@@ -782,6 +790,22 @@ fn launchlab_action(product: Option<&RaydiumProductDebug>) -> Option<&'static st
 mod tests {
     use super::*;
     use crate::debug::types::DecodedInstruction;
+
+    #[test]
+    fn decodes_token_revoke_with_source_and_owner() {
+        let accounts = vec![
+            "source_token_account".to_string(),
+            "owner_wallet".to_string(),
+        ];
+        let decoded = decode_token_instruction_data(&[5], &accounts).unwrap();
+
+        assert_eq!(decoded.instruction_type, "revoke");
+        assert_eq!(decoded.parameters.len(), 2);
+        assert_eq!(decoded.parameters[0].name, "source");
+        assert_eq!(decoded.parameters[0].value, "source_token_account");
+        assert_eq!(decoded.parameters[1].name, "owner");
+        assert_eq!(decoded.parameters[1].value, "owner_wallet");
+    }
 
     #[test]
     fn execution_tree_attaches_repeated_token_cpis_by_inner_instruction() {

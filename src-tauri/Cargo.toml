@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 raydium_debugger = { path = ".." }
 raydium-investigation = { path = "../crates/raydium-investigation" }
+raydium-knowledge-builder = { path = "../crates/raydium-knowledge-builder" }
 dotenvy = "=0.15.7"
 uuid = { version = "=1.26.1", features = ["v4"] }
 serde = { version = "1", features = ["derive"] }

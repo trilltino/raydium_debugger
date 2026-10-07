@@ -5,6 +5,7 @@ use tokio::sync::Semaphore;
 
 use crate::investigation::{InvestigationService, RuntimeLimits, RuntimePaths};
 use crate::store::SignatureStore;
+use raydium_knowledge_builder::ReviewStore;
 
 const DEFAULT_MAX_CONCURRENT_DEBUGS: usize = 4;
 
@@ -21,6 +22,8 @@ pub struct AppState {
     pub investigation_service: InvestigationService,
     /// Operational DB used only for redacted recent-observation summaries.
     pub observations_database_path: PathBuf,
+    /// Private support archive review and sanitized publication paths.
+    pub review_store: ReviewStore,
 }
 
 impl AppState {
@@ -50,6 +53,7 @@ impl AppState {
             store: SignatureStore::from_env()?,
             investigation_service,
             observations_database_path,
+            review_store: ReviewStore::from_env(),
         })
     }
 }

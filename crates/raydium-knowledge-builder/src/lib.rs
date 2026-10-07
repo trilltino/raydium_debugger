@@ -8,6 +8,12 @@ mod candidates;
 use candidates::*;
 mod review;
 use review::*;
+mod ui_review;
+pub use ui_review::{
+    ReviewDecision, ReviewDetail, ReviewList, ReviewMedia, ReviewQuery, ReviewStore,
+};
+mod resolution;
+use resolution::*;
 mod search;
 use search::*;
 mod persistence;
@@ -45,7 +51,7 @@ use tantivy::{
 const DEFAULT_DATABASE_PATH: &str = ".raydium-debugger/support-knowledge.sqlite";
 const DEFAULT_INDEX_PATH: &str = ".raydium-debugger/support-knowledge-index";
 const DEFAULT_KNOWLEDGE_PATH: &str = "knowledge/incidents.generated.json";
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 13;
 
 const ENTITY_EXTRACTION_VERSION: i64 = 1;
 const SEARCH_INDEX_VERSION: u32 = 1;
@@ -175,6 +181,20 @@ struct GeneratedRegistry {
     schema_version: u32,
     source_revision: i64,
     incidents: Vec<GeneratedIncident>,
+    #[serde(default)]
+    guidance: Vec<GeneratedGuidance>,
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+struct GeneratedGuidance {
+    id: String,
+    product: Option<String>,
+    failure_domain: Option<String>,
+    category: String,
+    summary: String,
+    guidance: String,
+    evidence_message_count: usize,
+    reference_count: usize,
 }
 
 type GeneratedIncident = raydium_knowledge::CuratedIncident;
@@ -301,6 +321,36 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
 
 fn run_candidates(args: &[String]) -> anyhow::Result<()> {
     match args.first().map(String::as_str) {
+        Some("reconcile") => {
+            anyhow::ensure!(args.len() <= 2, "usage: candidates reconcile [database]");
+            let database=candidate_database_arg(args.get(1))?;
+            let mut connection=open_existing_database(&database)?;
+            initialize_schema(&connection)?;
+            resolve_reply_edges(&mut connection)?;
+            rebuild_candidate_cases(&mut connection)?;
+            reconcile_resolutions(&mut connection)
+        }
+        Some("resolution-report") => {
+            anyhow::ensure!(args.len() <= 2, "usage: candidates resolution-report [database]");
+            let database=candidate_database_arg(args.get(1))?;
+            let connection=open_existing_database(&database)?;
+            initialize_schema(&connection)?;
+            resolution_report(&connection,true)
+        }
+        Some("resolution-show") => {
+            anyhow::ensure!((2..=3).contains(&args.len()), "usage: candidates resolution-show <case-id> [database]");
+            let database=candidate_database_arg(args.get(2))?;
+            let connection=open_existing_database(&database)?;
+            initialize_schema(&connection)?;
+            show_resolution(&connection,&args[1])
+        }
+        Some("verify-resolution") => {
+            anyhow::ensure!((6..=7).contains(&args.len()), "usage: candidates verify-resolution <case-id> <confirmed|team_fixed|proposed|unknown> <revision-ids-csv> <rationale> <reviewer> [database]");
+            let database=candidate_database_arg(args.get(6))?;
+            let connection=open_existing_database(&database)?;
+            initialize_schema(&connection)?;
+            verify_resolution(&connection,&args[1],&args[2],&args[3],&args[4],&args[5])
+        }
         Some("curate") => {
             anyhow::ensure!((4..=5).contains(&args.len()), "usage: candidates curate <case-id> <annotation.json> <reviewer> [database]");
             let database=candidate_database_arg(args.get(4))?;
@@ -318,7 +368,7 @@ fn run_candidates(args: &[String]) -> anyhow::Result<()> {
             resolve_reply_edges(&mut connection)?;
             let stats = rebuild_candidate_cases(&mut connection)?;
             print_candidate_build_stats(&stats);
-            Ok(())
+            reconcile_resolutions(&mut connection)
         }
         Some("list") => {
             if args.len() > 3 {
@@ -448,7 +498,8 @@ fn run_candidates(args: &[String]) -> anyhow::Result<()> {
                 &args[2],
                 &args[3],
                 "local",
-            )
+            )?;
+            reconcile_resolutions(&mut connection)
         }
         Some("split") => {
             if args.len() < 4 || args.len() > 5 {
@@ -471,9 +522,10 @@ fn run_candidates(args: &[String]) -> anyhow::Result<()> {
                 &message_ids,
                 &args[3],
                 "local",
-            )
+            )?;
+            reconcile_resolutions(&mut connection)
         }
-        _ => bail!("usage: support-knowledge candidates <rebuild|list|signatures|show|annotate|review|enrich|merge|split> ..."),
+        _ => bail!("usage: support-knowledge candidates <reconcile|resolution-report|resolution-show|verify-resolution|rebuild|list|signatures|show|annotate|review|enrich|merge|split> ..."),
     }
 }
 fn candidate_database_arg(value: Option<&String>) -> anyhow::Result<PathBuf> {

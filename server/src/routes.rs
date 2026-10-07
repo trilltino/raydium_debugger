@@ -511,7 +511,10 @@ pub async fn ask(
     }
 }
 
-fn validate_api_token(state: &AppState, headers: &HeaderMap) -> Option<axum::response::Response> {
+pub(crate) fn validate_api_token(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Option<axum::response::Response> {
     let token = headers
         .get("x-raydium-debugger-token")
         .and_then(|value| value.to_str().ok());

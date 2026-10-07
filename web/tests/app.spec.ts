@@ -235,7 +235,7 @@ test('shows structured backend errors without mocked data', async ({ page }) => 
 });
 
 test('indexes signatures by integrator for dropdown reuse', async ({ page }) => {
-  const integrator = `Integrator ${Date.now()}`;
+  const integrator = `Integrator ${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const signature = 'ACaZMGWN11hw6ynimi1yCywu5iXmhwk3NWzE7LiE16i1eQo7tECKiSHuSx5iZXqMEt8q2Ryr9zevQEvVeGQR8Ua';
 
   await page.goto('/');

@@ -62,6 +62,19 @@ pub(crate) fn router_with_state(state: Arc<AppState>) -> Router {
         .route("/api/ready", get(routes::readiness))
         .route("/api/metrics", get(routes::metrics))
         .route("/api/ask", post(routes::ask))
+        .route("/api/knowledge/review", get(crate::review_routes::list))
+        .route(
+            "/api/knowledge/review/:id",
+            get(crate::review_routes::detail),
+        )
+        .route(
+            "/api/knowledge/review/:id/media/:revision/:index",
+            get(crate::review_routes::media),
+        )
+        .route(
+            "/api/knowledge/review/:id/decision",
+            post(crate::review_routes::submit),
+        )
         .fallback_service(ServeDir::new(WEB_DIST).not_found_service(ServeFile::new(INDEX_HTML)))
         .layer(cors())
         .with_state(state)
@@ -136,6 +149,12 @@ mod tests {
             store: SignatureStore::from_path(path).unwrap(),
             investigation_service,
             observations_database_path,
+            review_store: raydium_knowledge_builder::ReviewStore {
+                database: path.with_extension("support.sqlite"),
+                packets: path.with_extension("packets.jsonl"),
+                drafts: path.with_extension("drafts.jsonl"),
+                published: path.with_extension("knowledge.json"),
+            },
         });
         router_with_state(state)
     }

@@ -3,6 +3,7 @@
 mod app;
 mod error;
 use raydium_debugger_server::investigation;
+mod review_routes;
 mod routes;
 mod state;
 mod store;

@@ -3,6 +3,9 @@ import type {
   AiAskRequest,
   AiResponse,
   CasebookRecord,
+  CorpusDecision,
+  CorpusReviewDetail,
+  CorpusReviewList,
   CreateCasebookRequest,
   CreateIntegratorRequest,
   DebugRequest,
@@ -314,4 +317,36 @@ export async function getProviderStatus(): Promise<ProviderStatus> {
 export async function listRecentGroups(cluster: 'devnet' | 'mainnet'): Promise<RecentObservationSummary[]> {
   if (isTauri()) return invokeCommand('recent_groups_cmd', { cluster });
   return getJson(`/api/observations/groups?cluster=${encodeURIComponent(cluster)}`);
+}
+
+export async function listCorpusReviews(query: { search?: string; kind?: string; status?: string; value?: string; offset?: number; limit?: number }): Promise<CorpusReviewList> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== '') params.set(key, String(value));
+  if (isTauri()) return invokeCommand('list_corpus_reviews_cmd', { query });
+  return getJson(`/api/knowledge/review?${params}`);
+}
+
+export async function getCorpusReview(id: string): Promise<CorpusReviewDetail> {
+  if (isTauri()) return invokeCommand('get_corpus_review_cmd', { id });
+  return getJson(`/api/knowledge/review/${encodeURIComponent(id)}`);
+}
+
+export async function saveCorpusReview(id: string, decision: CorpusDecision): Promise<CorpusReviewDetail> {
+  if (isTauri()) return invokeCommand('save_corpus_review_cmd', { id, decision });
+  return postJson(`/api/knowledge/review/${encodeURIComponent(id)}/decision`, decision);
+}
+
+export async function getCorpusMedia(id: string, revision: number, index: number): Promise<Blob> {
+  if (isTauri()) {
+    const media = await invokeCommand<{ mime: string; bytes: number[] }>('get_corpus_media_cmd', { id, revision, index });
+    return new Blob([new Uint8Array(media.bytes)], { type: media.mime });
+  }
+  const response = await fetch(`${API_BASE}/api/knowledge/review/${encodeURIComponent(id)}/media/${revision}/${index}`, {
+    headers: { 'x-raydium-debugger-token': await apiToken() },
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(payload?.error ?? `Attachment preview failed: ${response.status}`);
+  }
+  return response.blob();
 }

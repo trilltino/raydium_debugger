@@ -8,6 +8,50 @@ use raydium_investigation::{
 use tauri::Manager;
 
 use raydium_debugger::{run_debug_request_blocking, AiAskRequest, DebugRequest, DebugResponse};
+use raydium_knowledge_builder::{ReviewDecision, ReviewQuery, ReviewStore};
+
+#[tauri::command]
+async fn list_corpus_reviews_cmd(
+    query: ReviewQuery,
+) -> Result<raydium_knowledge_builder::ReviewList, String> {
+    tokio::task::spawn_blocking(move || ReviewStore::from_env().list(query))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn get_corpus_review_cmd(
+    id: String,
+) -> Result<raydium_knowledge_builder::ReviewDetail, String> {
+    tokio::task::spawn_blocking(move || ReviewStore::from_env().detail(&id))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn save_corpus_review_cmd(
+    id: String,
+    decision: ReviewDecision,
+) -> Result<raydium_knowledge_builder::ReviewDetail, String> {
+    tokio::task::spawn_blocking(move || ReviewStore::from_env().submit(&id, decision))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn get_corpus_media_cmd(
+    id: String,
+    revision: i64,
+    index: usize,
+) -> Result<raydium_knowledge_builder::ReviewMedia, String> {
+    tokio::task::spawn_blocking(move || ReviewStore::from_env().media(&id, revision, index))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}
 
 #[tauri::command]
 async fn debug_transaction_cmd(request: DebugRequest) -> Result<DebugResponse, String> {
@@ -60,7 +104,11 @@ pub fn run() {
             investigation_lookup_cmd,
             investigation_events_cmd,
             investigation_retry_cmd,
-            ask_ai_cmd
+            ask_ai_cmd,
+            list_corpus_reviews_cmd,
+            get_corpus_review_cmd,
+            save_corpus_review_cmd,
+            get_corpus_media_cmd
         ])
         .build(context)
         .expect("error while building Tauri application")

@@ -98,6 +98,21 @@ async fn run_ai_question(
     .await
     .context("AI question failed")?;
     println!("\nAI Answer ({}):\n{}", response.model, response.answer);
+    println!(
+        "Historical guidance: {:?}, {} matched incidents from {} published incidents.",
+        response.knowledge.status,
+        response.knowledge.incidents.len(),
+        response.knowledge.incident_count
+    );
+    for incident in &response.knowledge.incidents {
+        println!(
+            "[incident:{}] {} match: {}",
+            incident.incident_id, incident.strength, incident.summary
+        );
+        if !incident.missing_signals.is_empty() {
+            println!("Still unknown: {}", incident.missing_signals.join("; "));
+        }
+    }
     Ok(())
 }
 

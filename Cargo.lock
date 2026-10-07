@@ -4613,6 +4613,7 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "raydium-investigation",
+ "raydium-knowledge-builder",
  "raydium_debugger",
  "rusqlite",
  "serde",
@@ -4631,6 +4632,7 @@ version = "0.1.0"
 dependencies = [
  "dotenvy",
  "raydium-investigation",
+ "raydium-knowledge-builder",
  "raydium_debugger",
  "serde",
  "serde_json",
@@ -4715,6 +4717,7 @@ dependencies = [
  "genai",
  "hex",
  "insta",
+ "raydium-knowledge",
  "serde",
  "serde_json",
  "solana-client",

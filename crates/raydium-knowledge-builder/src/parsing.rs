@@ -79,6 +79,7 @@ pub(super) fn import_archive(export_dir: &Path, database_path: &Path) -> anyhow:
     println!("Entity candidates refreshed: {entity_count}");
     let candidate_stats = rebuild_candidate_cases(&mut connection)?;
     print_candidate_build_stats(&candidate_stats);
+    reconcile_resolutions(&mut connection)?;
 
     println!(
         "Import complete: {imported_files} source versions imported, {unchanged_files} unchanged, {stored_messages} message revisions stored, {skipped_records} records skipped."

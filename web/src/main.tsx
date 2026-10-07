@@ -41,6 +41,7 @@ import {
 } from './api';
 import { dateTime, exactNumber, lamports, shortAddress, signed } from './format';
 import type {
+  AiResponse,
   AccountEvidence,
   CasebookRecord,
   DebugResponse,
@@ -58,13 +59,18 @@ import type {
 } from './types';
 import './styles.css';
 import { Help } from './help/Help';
+import { Review } from './review/Review';
 
 type Tab = 'summary' | 'instructions' | 'compute' | 'accounts' | 'logs' | 'raw';
 
 function App() {
   const [helpVisible, setHelpVisible] = React.useState(() => window.location.hash.startsWith('#help'));
+  const [reviewVisible, setReviewVisible] = React.useState(() => window.location.hash.startsWith('#review'));
   React.useEffect(() => {
-    const navigate = () => setHelpVisible(window.location.hash.startsWith('#help'));
+    const navigate = () => {
+      setHelpVisible(window.location.hash.startsWith('#help'));
+      setReviewVisible(window.location.hash.startsWith('#review'));
+    };
     window.addEventListener('hashchange', navigate);
     return () => window.removeEventListener('hashchange', navigate);
   }, []);
@@ -86,7 +92,7 @@ function App() {
   const [investigating, setInvestigating] = React.useState(false);
   const [question, setQuestion] = React.useState('');
   const [aiModel, setAiModel] = React.useState('');
-  const [aiAnswer, setAiAnswer] = React.useState<string | null>(null);
+  const [aiAnswer, setAiAnswer] = React.useState<AiResponse | null>(null);
   const [asking, setAsking] = React.useState(false);
   const [integrators, setIntegrators] = React.useState<IntegratorRecord[]>([]);
   const [selectedIntegratorId, setSelectedIntegratorId] = React.useState('');
@@ -99,10 +105,10 @@ function App() {
   const resultsRef = React.useRef<HTMLElement>(null);
 
   React.useEffect(() => {
-    if ((!response && !investigation) || helpVisible || !window.matchMedia('(max-width: 720px)').matches) return;
+    if ((!response && !investigation) || helpVisible || reviewVisible || !window.matchMedia('(max-width: 720px)').matches) return;
     resultsRef.current?.focus({ preventScroll: true });
     resultsRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' });
-  }, [response, investigation]);
+  }, [response, investigation, helpVisible, reviewVisible]);
 
   React.useEffect(() => {
     const active = activeInvestigation();
@@ -259,6 +265,7 @@ function App() {
     event.preventDefault();
     if (!response?.transaction || !question.trim()) return;
     setAsking(true);
+    setAiAnswer(null);
     setError(null);
     try {
       const answer = await askAi({
@@ -266,7 +273,7 @@ function App() {
         question: question.trim(),
         model: aiModel.trim() || null,
       });
-      setAiAnswer(answer.answer);
+      setAiAnswer(answer);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -373,13 +380,22 @@ function App() {
           </div>
         </div>
         <nav className="topnav" aria-label="Debugger sections">
-          <a href="#debug" aria-current={!helpVisible ? 'page' : undefined}>Debug</a>
+          <a href="#debug" aria-current={!helpVisible && !reviewVisible ? 'page' : undefined}>Debug</a>
           <a href="#help" aria-current={helpVisible ? 'page' : undefined}>Updates</a>
+          <a href="#review" aria-current={reviewVisible ? 'page' : undefined}>Knowledge review</a>
         </nav>
       </header>
 
       {helpVisible && <Help />}
-      <main className="shell debug-view" hidden={helpVisible}>
+      {reviewVisible && <Review />}
+      <div className="debug-intro" hidden={helpVisible || reviewVisible}>
+        <div className="debug-intro__content">
+          <span className="debug-intro__eyebrow">Raydium / Developer tools</span>
+          <h2>Debug transactions with context.</h2>
+          <p>Trace a Solana signature, investigate a support symptom, and review the evidence behind each answer.</p>
+        </div>
+      </div>
+      <main className="shell debug-view" hidden={helpVisible || reviewVisible}>
         <section className="swap-console" aria-label="Transaction debugger console">
           <form className="query" onSubmit={runDebug}>
             <label className="field field--wide">
@@ -919,7 +935,7 @@ function Summary(props: {
   aiModel: string;
   setAiModel: (value: string) => void;
   asking: boolean;
-  answer: string | null;
+  answer: AiResponse | null;
 }) {
   const { info } = props;
   const failure = info.failure;
@@ -984,7 +1000,35 @@ function Summary(props: {
             Ask
           </button>
         </form>
-        {props.answer && <pre className="answer">{props.answer}</pre>}
+        {props.answer && <>
+          {props.answer.knowledge && <div aria-label="Reviewed knowledge">
+            <p>{({
+              unavailable: 'Reviewed knowledge is unavailable. The answer uses transaction evidence only.',
+              empty: 'No reviewed historical incidents have been published yet. Current guidance may still be available below.',
+              no_match: 'No reviewed incident matched this transaction and question.',
+              matched: `${props.answer.knowledge.incidents.length} historical ${props.answer.knowledge.incidents.length === 1 ? 'match' : 'matches'} from ${props.answer.knowledge.incident_count} reviewed incidents.`,
+            })[props.answer.knowledge.status]}</p>
+            {props.answer.knowledge.incidents.map((incident) => <details key={incident.incident_id}>
+              <summary>{incident.incident_id} · {incident.strength} match</summary>
+              <p>{incident.summary}</p>
+              <p>{incident.resolution}</p>
+              <ul className="list">{incident.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+              {incident.missing_signals.length > 0 && <p>Still unknown: {incident.missing_signals.join('; ')}</p>}
+            </details>)}
+            {(props.answer.knowledge.guidance?.length ?? 0) > 0 && <section aria-label="Reviewed current guidance"><p>{props.answer.knowledge.guidance?.length} current guidance matches from {props.answer.knowledge.guidance_count} reviewed entries. These are advice, not confirmed historical fixes.</p>
+              {props.answer.knowledge.guidance?.map((item) => <details key={item.guidance_id}><summary>{item.guidance_id} · current guidance</summary><p>{item.summary}</p><p>{item.guidance}</p><small>Matched: {item.matched_terms.join(', ')}</small></details>)}</section>}
+          </div>}
+          {props.answer.updates?.status === 'matched' && <div aria-label="Upgrade notices">
+            <p>{props.answer.updates.updates.length} dated upgrade {props.answer.updates.updates.length === 1 ? 'notice' : 'notices'} matched. Planned notices do not establish deployment.</p>
+            {props.answer.updates.updates.map((update) => <details key={update.update_id}>
+              <summary>{update.date} · {update.status} · {update.summary}</summary>
+              <p>{update.excerpt}</p>
+              {update.reference_excerpt && <p>{update.reference_excerpt}</p>}
+              <p><a href={update.source_url} target="_blank" rel="noreferrer">Source announcement</a>{update.reference_repo && update.reference_commit && update.reference_path ? ` · ${update.reference_repo}@${update.reference_commit.slice(0, 8)}: ${update.reference_path}` : ''}</p>
+            </details>)}
+          </div>}
+          <pre className="answer">{props.answer.answer}</pre>
+        </>}
       </Panel>
     </div>
   );

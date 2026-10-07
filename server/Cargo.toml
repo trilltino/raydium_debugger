@@ -11,6 +11,7 @@ ai = ["raydium_debugger/ai"]
 
 [dependencies]
 raydium-investigation = { path = "../crates/raydium-investigation" }
+raydium-knowledge-builder = { path = "../crates/raydium-knowledge-builder" }
 anyhow = "=1.0.103"
 axum = "=0.7.9"
 clap = { version = "=4.5", features = ["derive"] }

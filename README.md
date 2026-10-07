@@ -49,6 +49,9 @@ The debugger currently provides:
 - Local integrator and casebook storage for retaining useful transaction examples.
 - CLI, Axum API, React UI, and Tauri application surfaces.
 - Optional AI Q&A behind a feature flag; deterministic debugging does not require AI.
+- A local Knowledge review screen for the private support archive, with separate
+  approval of historical fixes and current guidance. Approved, sanitized entries
+  are retrieved by AI with incident or guidance citations.
 
 ## Diagnostic philosophy
 
@@ -185,6 +188,8 @@ pinned state
 ```
 
 This makes it possible to retain real debugging examples as a regression and support knowledge base without changing the deterministic transaction-analysis path.
+
+The Telegram support export, private coverage reports, and dated upgrade ledger are described in [Support archive coverage and upgrade knowledge](docs/support-corpus-coverage.md).
 
 The default database is:
 

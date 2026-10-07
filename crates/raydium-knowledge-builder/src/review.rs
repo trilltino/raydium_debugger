@@ -18,6 +18,7 @@ pub(super) fn review_candidate(
         bail!("review action must be approve or reject");
     }
     if action == "approve" {
+        ensure_publishable_resolution(connection, case_id)?;
         let annotated: bool = connection.query_row(
             "SELECT EXISTS (
                 SELECT 1 FROM case_annotations WHERE case_id = ?1
@@ -169,6 +170,7 @@ pub(super) fn build_generated_registry(
     let mut incidents = Vec::new();
     for row in rows {
         let (id, product, failure_domain, summary, resolution, tags_json, evidence_count) = row?;
+        ensure_publishable_resolution(connection, &id)?;
         let curated: Option<String> = connection.query_row(
             "SELECT curated_json FROM case_annotations WHERE case_id=?1",
             [&id],
@@ -198,10 +200,84 @@ pub(super) fn build_generated_registry(
             valid_until: None,
         });
     }
+    let mut guidance = Vec::new();
+    let mut statement = connection.prepare("SELECT packet_id,packet_kind,source_fingerprint,product,failure_domain,category,summary,guidance,evidence_json,reference_ids_json
+        FROM corpus_packet_reviews WHERE publication_status='published_guidance' AND value_status='valuable' ORDER BY packet_id")?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, String>(6)?,
+            row.get::<_, String>(7)?,
+            row.get::<_, String>(8)?,
+            row.get::<_, String>(9)?,
+        ))
+    })?;
+    for row in rows {
+        let (
+            id,
+            kind,
+            source_hash,
+            product,
+            domain,
+            category,
+            summary,
+            advice,
+            evidence_json,
+            reference_json,
+        ) = row?;
+        let evidence: Vec<i64> = serde_json::from_str(&evidence_json)?;
+        let references: Vec<String> = serde_json::from_str(&reference_json)?;
+        if evidence.is_empty() {
+            continue;
+        }
+        let source = if kind == "case" {
+            let current: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM candidate_cases WHERE case_id=?1 AND is_current=1)",
+                [&id],
+                |r| r.get(0),
+            )?;
+            if !current {
+                continue;
+            }
+            messages(connection, &id)?
+        } else {
+            let revision = evidence[0];
+            let grouped: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM candidate_case_messages cm JOIN candidate_cases c ON c.case_id=cm.case_id WHERE cm.revision_id=?1 AND c.is_current=1)", [revision], |r| r.get(0))?;
+            if grouped {
+                continue;
+            }
+            connection.query_row("SELECT m.revision_id,m.sender,m.body FROM message_revisions m JOIN source_files s ON s.source_file_id=m.source_file_id WHERE m.revision_id=?1 AND m.corpus_id='support' AND s.source_file_id=(SELECT MAX(latest.source_file_id) FROM source_files latest WHERE latest.corpus_id=s.corpus_id AND latest.file_name=s.file_name)", [revision], |r| Ok(ResolutionMessage { revision_id:r.get(0)?, sender:r.get(1)?, body:r.get(2)? })).optional()?.into_iter().collect()
+        };
+        if source_hash != fingerprint(&source)
+            || !evidence.iter().all(|revision| {
+                source
+                    .iter()
+                    .any(|message| message.revision_id == *revision)
+            })
+        {
+            continue;
+        }
+        guidance.push(GeneratedGuidance {
+            id,
+            product: optional_annotation_value(&product),
+            failure_domain: optional_annotation_value(&domain),
+            category,
+            summary,
+            guidance: advice,
+            evidence_message_count: evidence.len(),
+            reference_count: references.len(),
+        });
+    }
     Ok(GeneratedRegistry {
         schema_version: 1,
         source_revision,
         incidents,
+        guidance,
     })
 }
 

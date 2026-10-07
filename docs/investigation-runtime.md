@@ -38,6 +38,24 @@ RAYDIUM_DEBUGGER_INVESTIGATION_PATH=<absolute private ledger path>
 
 Missing optional stores leave deterministic diagnosis available. No approved incidents are invented for an empty registry. Native progress uses a Tauri channel; symptom-only, signature and recent-group investigations all call the shared service. The separate Windows native suite launches the built desktop window and tests actual IPC, restart recovery and interruption. The browser command-bridge regression covers frontend routing separately.
 
+## Historical guidance in AI answers
+
+The optional AI path retrieves up to three matching incidents from the compiled, sanitized artifact. CLI, HTTP and desktop use the same retrieval code. The model receives each reviewed summary and resolution, its match strength, its match reasons, and the signals still missing. Answers should cite historical guidance with `[incident:<id>]`. The response also returns the supplied evidence in `knowledge`, so you can inspect it without relying on the model's prose.
+
+Importing messages does not publish guidance. Candidate cases need a curated annotation and an explicit review before compilation includes them. A compiled artifact with zero incidents is valid and produces an `empty` knowledge status. Missing or malformed artifacts produce `unavailable`. Both states leave transaction-based AI answers available when a model is configured. A populated artifact without a relevant match produces `no_match`.
+
+Set `RAYDIUM_DEBUGGER_KNOWLEDGE_PATH` to the same absolute artifact path in every runtime shell. The default remains `knowledge/incidents.generated.json`. The sample environment points to the ignored local artifact directory.
+
+After reviewing and approving cases, publish the artifact with:
+
+```text
+cargo run -p xtask -- support-knowledge compile .raydium-debugger/support-knowledge.sqlite .raydium-debugger/knowledge/incidents.generated.json
+```
+
+Build your runtime shell with `--features ai`. Set `RAYDIUM_DEBUGGER_AI_MODEL` and the credentials required by your configured provider in the runtime environment. You can override the model per AI question. Retrieval reads the latest artifact on each question and runs filesystem work on a blocking worker. It never opens the private message database or search index. Private messages are not sent to the model.
+
+Matching rejects known program, product, outcome, and time contradictions. Missing facts weaken a match. Historical guidance does not change the deterministic diagnosis, and a similar incident does not prove the cause of your transaction.
+
 ## Match evaluation
 
 ```text

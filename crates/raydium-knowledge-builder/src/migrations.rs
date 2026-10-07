@@ -207,6 +207,71 @@ pub(super) fn initialize_schema_inner(connection: &Connection) -> anyhow::Result
             PRAGMA user_version=10;",
         )?;
     }
+    if connection.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? == 10 {
+        connection.execute_batch(
+            "CREATE TABLE case_resolution_scans (
+                case_id TEXT PRIMARY KEY REFERENCES candidate_cases(case_id),
+                fingerprint TEXT NOT NULL,
+                rule_version INTEGER NOT NULL
+            );
+            CREATE TABLE case_resolution_suggestions (
+                case_id TEXT NOT NULL REFERENCES candidate_cases(case_id),
+                revision_id INTEGER NOT NULL REFERENCES message_revisions(revision_id),
+                signal TEXT NOT NULL CHECK (signal IN ('proposal','team_fix','reporter_confirmation')),
+                PRIMARY KEY (case_id, revision_id, signal)
+            );
+            CREATE TABLE case_resolution_reviews (
+                case_id TEXT PRIMARY KEY REFERENCES candidate_cases(case_id),
+                outcome TEXT NOT NULL CHECK (outcome IN ('confirmed','team_fixed','proposed','unknown')),
+                evidence_json TEXT NOT NULL,
+                fingerprint TEXT NOT NULL,
+                reviewer TEXT NOT NULL,
+                rationale TEXT NOT NULL,
+                reviewed_at INTEGER NOT NULL
+            );
+            PRAGMA user_version=11;",
+        )?;
+    }
+
+    if connection.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? == 11 {
+        connection.execute_batch(
+            "CREATE TABLE corpus_packet_reviews (
+                packet_id TEXT PRIMARY KEY,
+                evidence_fingerprint TEXT NOT NULL,
+                value_status TEXT NOT NULL CHECK (value_status IN ('valuable','uncertain','not_useful')),
+                outcome TEXT NOT NULL CHECK (outcome IN ('confirmed','team_fixed','proposed','unknown')),
+                category TEXT NOT NULL,
+                diagnosis TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                resolution TEXT NOT NULL,
+                guidance TEXT NOT NULL,
+                product TEXT NOT NULL,
+                failure_domain TEXT NOT NULL,
+                evidence_json TEXT NOT NULL,
+                rationale TEXT NOT NULL,
+                reviewer TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE corpus_packet_review_events (
+                event_id INTEGER PRIMARY KEY,
+                packet_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                reviewer TEXT NOT NULL,
+                decision_json TEXT NOT NULL,
+                recorded_at INTEGER NOT NULL
+            );
+            PRAGMA user_version=12;",
+        )?;
+    }
+    if connection.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? == 12 {
+        connection.execute_batch(
+            "ALTER TABLE corpus_packet_reviews ADD COLUMN reference_ids_json TEXT NOT NULL DEFAULT '[]';
+             ALTER TABLE corpus_packet_reviews ADD COLUMN publication_status TEXT NOT NULL DEFAULT 'private';
+             ALTER TABLE corpus_packet_reviews ADD COLUMN packet_kind TEXT NOT NULL DEFAULT 'case';
+             ALTER TABLE corpus_packet_reviews ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT '';
+             PRAGMA user_version=13;",
+        )?;
+    }
 
     Ok(())
 }

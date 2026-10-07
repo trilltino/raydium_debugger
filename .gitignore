@@ -3,6 +3,7 @@
 /web/dist/
 /web/test-results/
 /src-tauri/target/
+__pycache__/
 /.raydium-debugger/
 *.log
 .env
